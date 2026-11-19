@@ -142,9 +142,9 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
     {
       id: 'welcome',
       sender: 'dermia',
-      text: `Olá, ${doctorProfile.name || 'Doutor(a)'}! Sou a **DermIA**, a inteligência artificial e copiloto clínico do seu consultório **ConsuDerme**.\n\n🎙️ **Sistema de Voz Ativado:** Você pode falar comigo pelo **microfone** e eu responderei por **voz** ou texto em tempo real.\n\n⚡ **Multi-IA Gratuita Integrada:** Operando com Llama 3.3 70B (Groq), Gemini 2.0 (Google Free) e Motor Clínico de Alta Precisão.\n\nEstou pronta para auxiliá-lo em:\n• **Raciocínio Diagnóstico & Rastreio de Neoplasias (ABCDE)**\n• **Formulações Magistrais & Veículos Galênicos**\n• **Anatomia Facial, Injetáveis & Protocolo de Hialuronidase**\n• **Custos de Procedimentos & Documentos CFM/LGPD**\n\nComo posso ajudar na sua conduta clínica agora?`,
+      text: `Olá, ${doctorProfile.name || 'Doutor(a)'}! Sou a **DermIA**, a inteligência artificial e copiloto clínico do seu consultório **ConsuDerme**.\n\n🎙️ **Sistema de Voz Ativado:** Você pode falar comigo pelo **microfone** e eu responderei por **voz** ou texto em tempo real.\n\n⚡ **Multi-IA Integrada via Servidor:** Operando com Google Gemini 4 Flash, Llama 3.3 70B (Groq) e Motor Clínico de Alta Precisão.\n\nEstou pronta para auxiliá-lo em:\n• **Raciocínio Diagnóstico & Rastreio de Neoplasias (ABCDE)**\n• **Formulações Magistrais & Veículos Galênicos**\n• **Anatomia Facial, Injetáveis & Protocolo de Hialuronidase**\n• **Custos de Procedimentos & Documentos CFM/LGPD**\n\nComo posso ajudar na sua conduta clínica agora?`,
       timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      providerUsed: 'Motor Clínico ConsuDerme (Local)',
+      providerUsed: 'Google Gemini 4 Flash (Servidor)',
       isFreeTier: true
     }
   ]);
@@ -161,17 +161,17 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
     }
   }, [messages, isOpen, speechInterim]);
 
-  // Load available AI Providers directly without server dependency
+  // Load available AI Providers from server
   useEffect(() => {
     setProviders([
       {
         id: 'gemini',
-        name: 'Google Gemini 3.7 Flash (Direto REST)',
-        model: 'gemini-3.7-flash',
+        name: 'Google Gemini 4 Flash (Servidor)',
+        model: 'gemini-4-hydrogen',
         configured: true,
         isFreeTier: true,
-        badge: 'Direto REST',
-        description: 'Chamadas REST diretas ao Gemini 3.7 Flash no navegador.'
+        badge: 'Servidor',
+        description: 'Chamadas seguras ao Gemini 4 Flash via servidor.'
       },
       {
         id: 'clinical_engine',
@@ -375,7 +375,8 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
       const data = await directDermiaChat({
         message: messageText,
         conversationHistory: safeArray<Message>(messages).slice(-6).map(m => ({ sender: m.sender, text: safeString(m.text) })),
-        doctorProfile
+        doctorProfile,
+        preferredProvider: selectedProvider
       });
 
       // Infer suggested tab if applicable
@@ -428,49 +429,16 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
         }, 300);
       }
     } catch (err: any) {
-      console.warn('Network issue caught in DermiaCopilot, generating direct clinical response:', err);
-      
-      // Client-side instant clinical response
-      const lower = messageText.toLowerCase();
-      let fallbackText = `Olá, **${doctorProfile.name || 'Doutor(a)'}**! Sou a **DermIA**, a inteligência artificial do seu consultório **ConsuDerme**.\n\n`;
-
-      if (lower.includes('melasma') || lower.includes('despigment') || lower.includes('mancha') || lower.includes('tranex')) {
-        fallbackText += `### 🔬 Manejo do Melasma Recalcitrante (Dérmico / Misto)\n\n**Sugestão de Fórmula Magistral:**\n• **Ácido Tranexâmico**: 3.0%\n• **Alfa-Arbutin**: 3.0% ou **Cisteamina HCl**: 5.0%\n• **Niacinamida**: 4.0%\n• **Ácido Kójico Dipalmitato**: 2.0%\n• **Veículo**: Sérum Fluido Toque Seco Fosfolipídico q.s.p. 30g (pH 5.5)\n\n**Posologia:** Aplicar 4 a 5 gotas à noite na face limpa e seca. Fotoproteção com cor (FPS 50+ com óxido de ferro) a cada 3h.`;
-      } else if (lower.includes('hialuroni') || lower.includes('isquemia') || lower.includes('oclus') || lower.includes('necrose')) {
-        fallbackText += `⚠️ **PROTOCOLO DE EMERGÊNCIA: REVERSÃO DE ISQUEMIA POR PREENCHEDOR**\n\n1. **Infiltração Imediata de Hialuronidase**: 500 a 1.500 UI diluídas em SF 0.9% na área isquêmica e trajeto vascular.\n2. **Repetição**: A cada 60 a 90 minutos se o tempo de enchimento capilar permanecer > 2 segundos.\n3. **Compressas Mornas e Massagem Vigorosa** para vasodilatação e difusão.\n4. **Adjuvantes**: AAS 100-300mg dose única + Prednisona 40-60mg/dia.\n5. **Amaurose/Dor ocular**: Encaminhamento imediato ao oftalmologista e câmara hiperbárica.`;
-      } else if (lower.includes('isotretino') || lower.includes('roacutan') || lower.includes('c2') || lower.includes('portaria 344')) {
-        fallbackText += `### 📜 Protocolo de Prescrição de Isotretinoína Oral (Portaria 344 Lista C2)\n\n• **Receituário C2**: Notificação especial branca (validade 30 dias).\n• **Mulheres em idade fértil**: Termo de Consentimento, 2 métodos contraceptivos complementares e 2 testes de gravidez (Beta-HCG) negativos com 30 dias de intervalo.\n• **Controle Laboratorial**: Hemograma, perfil lipídico, transaminases (TGO/TGP) e Beta-HCG mensal.\n• **Dose Acumulada Alvo**: 120 a 150 mg/kg.`;
-      } else if (lower.includes('melanoma') || lower.includes('abcde') || lower.includes('biópsia') || lower.includes('cbc') || lower.includes('cec')) {
-        fallbackText += `### 🔍 Avaliação Oncologia Cutânea & Regra ABCDE\n\n• **A - Assimetria**: Eixos estruturais e de cor desiguais.\n• **B - Bordas**: Irregulares, chanfradas ou término abrupto.\n• **C - Cores**: ≥ 3 tons (preto, castanho, azul/véu branco, despigmentação).\n• **D - Diâmetro**: > 6 mm.\n• **E - Evolução**: Mudança de relevo, sangramento ou prurido.\n\n**Conduta Padrão-Ouro**: Biópsia excisional completa com margem de 1 a 2mm de pele sã.`;
-      } else if (lower.includes('custo') || lower.includes('preço') || lower.includes('botox') || lower.includes('toxina')) {
-        fallbackText += `### 💰 Precificação & Custos de Procedimentos\n\n• **Custo por UI (Toxina Botulínica)**: R$ 7,50 (base frasco 100 UI por R$ 750).\n• **Sessão 50 UI + Insumos**: R$ 375,00 + R$ 45,00 = R$ 420,00 de custo direto.\n• **Preço Sugerido (Margem 65%)**: R$ 1.200,00 (Lucro de R$ 780,00 por aplicação).`;
-      } else {
-        fallbackText += `Recebi sua dúvida: *" ${messageText} "*\n\n### 🩺 Conduta & Módulos Disponíveis no ConsuDerme:\n• **Prescritor de Fórmulas**: Fórmulas magistrais personalizadas com veículos ideais.\n• **Guia de Injetáveis**: Mapa de segurança, dosimetria e protocolo de Hialuronidase.\n• **Consulta Clínica**: Anamnese estruturada por fototipo Fitzpatrick I a VI e diagnósticos diferenciais.\n• **Fluxo de Caixa**: Entradas, despesas operacionais e DRE real.\n• **Gestão**: Atestados CID-10, laudos dermatoscópicos e receitas C2.\n\nComo posso ajudá-lo a detalhar esse caso clínico?`;
-      }
-
-      const responseMsgId = (Date.now() + 1).toString();
-      const clientMsg: Message = {
-        id: responseMsgId,
+      console.error('Error calling DermIA server endpoint:', err);
+      const errMessage = err?.message || 'Não foi possível conectar ao servidor da DermIA. Tente novamente em instantes.';
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
         sender: 'dermia',
-        text: fallbackText,
+        text: `⚠️ **Não foi possível obter resposta da DermIA**\n\n${errMessage}`,
         timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        suggestedAction: suggestedTab ? {
-          label: suggestedTab === 'prescriptions' ? 'Abrir no Prescritor de Fórmulas' :
-                 suggestedTab === 'procedures' ? 'Acessar Guia de Injetáveis' :
-                 suggestedTab === 'clinical' ? 'Iniciar Consulta Clínica' :
-                 suggestedTab === 'financial' ? 'Acessar Fluxo de Caixa' :
-                 suggestedTab === 'management' ? 'Abrir Gestão do Consultório' : 'Ver TCLEs e Documentos Legais',
-          tab: suggestedTab,
-          icon: suggestedTab
-        } : undefined
+        providerUsed: 'Erro de Comunicação com Servidor'
       };
-      setMessages(prev => [...prev, clientMsg]);
-
-      if (autoVoiceResponse || isFromVoice) {
-        setTimeout(() => {
-          speakResponse(fallbackText, responseMsgId);
-        }, 300);
-      }
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setLoading(false);
     }
@@ -533,10 +501,10 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
                 <div className="flex items-center space-x-2">
                   <h3 className="font-extrabold text-base text-slate-900 tracking-tight">ConsuDerme AI</h3>
                   <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200">
-                    Gemini 3.7 Flash
+                    Gemini 4 Flash
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500">Copiloto Clínico, Fórmulas & Voz Ativa (Direto REST)</p>
+                <p className="text-[11px] text-slate-500">Copiloto Clínico, Fórmulas & Voz Ativa (Servidor)</p>
               </div>
             </div>
 
@@ -618,7 +586,15 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
                     title="Alternar Motor de Inteligência Artificial Gratuito"
                   >
                     <span className="truncate max-w-[190px]">
-                      ✨ Gemini 3.7 Flash (Direto REST)
+                      {selectedProvider === 'auto'
+                        ? '⚡ Automático (Gemini 4 Flash)'
+                        : selectedProvider === 'groq'
+                        ? '⚡ Groq (Llama 3.3 70B)'
+                        : selectedProvider === 'gemini'
+                        ? '✨ Google Gemini 4 Flash'
+                        : selectedProvider === 'openrouter'
+                        ? '🌐 OpenRouter (Free)'
+                        : '🛡️ Motor Clínico Local'}
                     </span>
                     <ChevronDown className="w-3 h-3 text-slate-400" />
                   </button>
@@ -659,8 +635,8 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
                       >
                         <Sparkles className="w-3.5 h-3.5 text-pink-500 mt-0.5 shrink-0" />
                         <div>
-                          <div className="font-semibold text-slate-900">Google Gemini (Free Tier)</div>
-                          <div className="text-[10px] text-slate-500">Gemini 2.0 Flash com foco dermatológico</div>
+                          <div className="font-semibold text-slate-900">Google Gemini 4 Flash</div>
+                          <div className="text-[10px] text-slate-500">Gemini 4 Flash via servidor com foco dermatológico</div>
                         </div>
                       </button>
 
@@ -1101,7 +1077,7 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
                     </span>
                   </div>
                   <p className="text-slate-600 text-[11px]">
-                    Gemini 2.0 Flash com cota gratuita generosa para raciocínio clínico dermatológico.
+                    Gemini 4 Flash com execução segura no servidor para raciocínio clínico dermatológico.
                   </p>
                 </div>
 

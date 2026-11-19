@@ -66,9 +66,10 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
     }
   };
 
-  // Generate Post Care Instructions for WhatsApp / Print via direct REST
+  // Generate Post Care Instructions for WhatsApp / Print via server API
   const handleGeneratePostCare = async () => {
     setLoadingPostCare(true);
+    setGuideError(null);
     try {
       const data = await directPostCareGenerator({
         procedure: safeString(customProcedureType, 'Procedimento Dermatológico'),
@@ -79,8 +80,9 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
       });
 
       setPostCareData(data as any);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setGuideError(err?.message || 'Erro ao gerar orientações pós-procedimento.');
     } finally {
       setLoadingPostCare(false);
     }

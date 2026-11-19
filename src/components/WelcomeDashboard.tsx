@@ -348,7 +348,7 @@ export const WelcomeDashboard: React.FC<WelcomeDashboardProps> = ({
               DermIA & Raciocínio Dermatológico
             </h4>
             <p className="text-xs text-slate-400 mb-4">
-              Assistente inteligente em tempo real alimentado pelo Gemini 3.7 Flash para estratificação semiológica e prescrição.
+              Assistente inteligente em tempo real alimentado pelo Gemini 4 Flash para estratificação semiológica e prescrição.
             </p>
             <ul className="text-xs space-y-2 text-slate-300">
               <li className="flex items-start gap-1.5">

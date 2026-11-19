@@ -11,6 +11,8 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+const GEMINI_MODEL = 'gemini-4-hydrogen';
+
 // Lazy initializer for Gemini client
 let aiClient: GoogleGenAI | null = null;
 function getGeminiAI(): GoogleGenAI | null {
@@ -27,6 +29,34 @@ function getGeminiAI(): GoogleGenAI | null {
     });
   }
   return aiClient;
+}
+
+class UpstreamAIError extends Error {
+  status: number;
+  constructor(message: string, status: number = 500) {
+    super(message);
+    this.name = 'UpstreamAIError';
+    this.status = status;
+  }
+}
+
+async function withExponentialBackoff<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.status || err?.code || 0;
+      const isRetryable = status === 429 || status === 503 || String(err?.message || '').includes('RESOURCE_EXHAUSTED');
+      if (!isRetryable || attempt === maxRetries) {
+        throw err;
+      }
+      const delayMs = 400 * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastErr;
 }
 
 // Helper to extract JSON cleanly even if wrapped in markdown blocks
@@ -54,13 +84,13 @@ function extractJsonFromText(rawText: string): any {
   }
 }
 
-// Multi-Provider AI Calling Engine (Google Gemini Free, Groq Llama 3.3 70B Free, OpenRouter Free)
+// Multi-Provider AI Calling Engine (Google Gemini Server-Side, Groq Llama 3.3 70B, OpenRouter)
 interface AIExecutionOptions {
   systemInstruction: string;
   prompt: string;
   isJson?: boolean;
   jsonSchema?: any;
-  preferredProvider?: 'auto' | 'gemini' | 'groq' | 'deepseek' | 'openrouter';
+  preferredProvider?: 'auto' | 'gemini' | 'groq' | 'deepseek' | 'openrouter' | 'clinical_engine';
 }
 
 interface AIExecutionResult {
@@ -71,14 +101,17 @@ interface AIExecutionResult {
   isFreeTier: boolean;
 }
 
-async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIExecutionResult | null> {
+async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIExecutionResult> {
   const { systemInstruction, prompt, isJson, jsonSchema, preferredProvider = 'auto' } = options;
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
   const openRouterKey = process.env.OPENROUTER_API_KEY;
 
-  // 1. Try Groq (Llama 3.3 70B or DeepSeek R1) if requested or if Groq key exists
+  let lastErrorMessage = '';
+  let lastErrorStatus = 500;
+
+  // 1. Try Groq (Llama 3.3 70B or DeepSeek R1) if explicitly requested or if Gemini is absent
   if (groqKey && (preferredProvider === 'groq' || preferredProvider === 'deepseek' || (preferredProvider === 'auto' && !geminiKey))) {
     try {
       const model = preferredProvider === 'deepseek' ? 'deepseek-r1-distill-llama-70b' : 'llama-3.3-70b-versatile';
@@ -113,14 +146,17 @@ async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIEx
           };
         }
       } else {
-        console.warn(`Groq request returned status ${groqResponse.status}: ${await groqResponse.text()}`);
+        lastErrorStatus = groqResponse.status;
+        lastErrorMessage = await groqResponse.text();
+        console.warn(`Groq request returned status ${groqResponse.status}: ${lastErrorMessage}`);
       }
     } catch (groqErr: any) {
-      console.warn('Groq API attempt failed, cascading to next provider:', groqErr?.message || groqErr);
+      lastErrorMessage = groqErr?.message || String(groqErr);
+      console.warn('Groq API attempt failed, cascading to next provider:', lastErrorMessage);
     }
   }
 
-  // 2. Try Google Gemini (Gemini 2.0 Flash / 1.5 Flash - Free Tier)
+  // 2. Try Google Gemini (Server-side @google/genai SDK with gemini-4-hydrogen)
   if (geminiKey && (preferredProvider === 'gemini' || preferredProvider === 'auto' || !groqKey)) {
     try {
       const ai = getGeminiAI();
@@ -135,11 +171,13 @@ async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIEx
           }
         }
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: prompt,
-          config
-        });
+        const response = await withExponentialBackoff(() =>
+          ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: prompt,
+            config
+          })
+        );
 
         const outputText = response.text || '';
         if (outputText.trim().length > 0) {
@@ -147,19 +185,21 @@ async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIEx
           return {
             text: outputText,
             jsonData: parsed,
-            providerUsed: 'Google Gemini (Free Tier)',
-            model: 'gemini-2.0-flash',
+            providerUsed: 'Google Gemini (Servidor)',
+            model: GEMINI_MODEL,
             isFreeTier: true
           };
         }
       }
     } catch (geminiErr: any) {
-      console.warn('Gemini API attempt failed, cascading to alternative provider:', geminiErr?.message || geminiErr);
+      lastErrorStatus = typeof geminiErr?.status === 'number' ? geminiErr.status : 502;
+      lastErrorMessage = geminiErr?.message || String(geminiErr);
+      console.warn('Gemini API attempt failed:', lastErrorMessage);
     }
   }
 
   // 3. Try OpenRouter (Free tier models) if key exists
-  if (openRouterKey) {
+  if (openRouterKey && (preferredProvider === 'openrouter' || preferredProvider === 'auto')) {
     try {
       const openRouterModel = 'meta-llama/llama-3.3-70b-instruct:free';
       const orResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -167,7 +207,7 @@ async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIEx
         headers: {
           'Authorization': `Bearer ${openRouterKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://consuderme.app',
+          'HTTP-Referer': 'https://www.consuderme.com.br',
           'X-Title': 'ConsuDerme Medical Assistant'
         },
         body: JSON.stringify({
@@ -193,13 +233,27 @@ async function executeMultiProviderAI(options: AIExecutionOptions): Promise<AIEx
             isFreeTier: true
           };
         }
+      } else {
+        lastErrorStatus = orResponse.status;
+        lastErrorMessage = await orResponse.text();
       }
     } catch (orErr: any) {
-      console.warn('OpenRouter attempt failed:', orErr?.message || orErr);
+      lastErrorMessage = orErr?.message || String(orErr);
+      console.warn('OpenRouter attempt failed:', lastErrorMessage);
     }
   }
 
-  return null;
+  if (!geminiKey && !groqKey && !openRouterKey) {
+    throw new UpstreamAIError(
+      'Chave da API Gemini não configurada no servidor. Verifique GEMINI_API_KEY em Settings > Secrets.',
+      503
+    );
+  }
+
+  throw new UpstreamAIError(
+    lastErrorMessage || 'Falha ao obter resposta do provedor de IA no servidor.',
+    lastErrorStatus >= 400 ? lastErrorStatus : 502
+  );
 }
 
 // Health check
@@ -215,11 +269,11 @@ app.get('/api/copilot/providers', (req, res) => {
 
   let activeEngine = 'Motor Clínico ConsuDerme (Segurança Local CFM/SBD)';
   if (groqAvailable && geminiAvailable) {
-    activeEngine = 'Híbrido Inteligente (Gemini 2.0 Flash + Groq Llama 3.3 70B)';
+    activeEngine = 'Híbrido Inteligente (Gemini 4 Flash + Groq Llama 3.3 70B)';
   } else if (groqAvailable) {
     activeEngine = 'Groq Cloud (Llama 3.3 70B - Gratuito)';
   } else if (geminiAvailable) {
-    activeEngine = 'Google Gemini 2.0 Flash (Free Tier)';
+    activeEngine = 'Google Gemini 4 Flash (Servidor)';
   } else if (openRouterAvailable) {
     activeEngine = 'OpenRouter (Llama 3.3 70B Free)';
   }
@@ -229,9 +283,10 @@ app.get('/api/copilot/providers', (req, res) => {
     providers: [
       {
         id: 'gemini',
-        name: 'Google Gemini 2.0 Flash / 1.5 Flash',
+        name: 'Google Gemini 4 Flash (Servidor)',
+        model: GEMINI_MODEL,
         isFreeTier: true,
-        quota: '1.500 requisições/dia gratuitas',
+        quota: 'Integrado via servidor seguro',
         isConfigured: geminiAvailable,
         setupUrl: 'https://aistudio.google.com'
       },
@@ -317,12 +372,14 @@ app.post('/api/copilot/differential-diagnosis', async (req, res) => {
 Sua função é fornecer análise clínica de suporte à decisão médica, de alto rigor técnico, organizada por probabilidade diagnóstica, identificando imediatamente sinais de alarme e neoplasias (Melanoma, Carcinoma Basocelular - CBC, Carcinoma Espinocelular - CEC, Farmacodermias graves como DRESS/NET, etc.).
 O médico assistente detém 100% da responsabilidade pelo diagnóstico e conduta.`;
 
+    const normalizedSymptoms = Array.isArray(symptoms) ? symptoms.join(', ') : (symptoms || 'Não informado');
+
     const prompt = `Analise os dados clínicos dermatológicos do paciente:
 - Fototipo de Fitzpatrick: ${fitzpatrick || 'Não informado'}
 - Queixa Principal e História da Moléstia Atual (HMA): ${complaint || 'Não informado'}
 - Tempo de Evolução: ${evolutionTime || 'Não informado'}
 - Topografia / Localização das Lesões: ${topography || 'Não informado'}
-- Sintomas Associados (Prurido, Dor, Sangramento, Descamação, etc.): ${symptoms || 'Não informado'}
+- Sintomas Associados (Prurido, Dor, Sangramento, Descamação, etc.): ${normalizedSymptoms}
 - Tratamentos Prévios: ${previousTreatments || 'Nenhum'}
 - Comorbidades / Histórico Pessoal e Familiar: ${comorbidities || 'Nenhum relatado'}
 - Alergias Conhecidas: ${allergies || 'Nega'}
@@ -390,10 +447,17 @@ Retorne estritamente em formato JSON estruturado com:
       });
     }
 
-    res.json({ success: true, data: fallbackData, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    return res.status(502).json({
+      success: false,
+      error: 'O modelo retornou uma estrutura inválida para diagnóstico diferencial.'
+    });
   } catch (error: any) {
-    console.warn('AI call bypassed for diagnosis, activating clinical fallback:', error?.message || error);
-    res.json({ success: true, data: fallbackData, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    const status = error instanceof UpstreamAIError ? error.status : 500;
+    console.error('Differential diagnosis error:', error?.message || error);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Erro ao processar diagnóstico diferencial no servidor.'
+    });
   }
 });
 
@@ -529,10 +593,17 @@ Retorne estritamente em formato JSON estruturado com:
       });
     }
 
-    res.json({ success: true, data: fallbackPrescription, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    return res.status(502).json({
+      success: false,
+      error: 'O modelo retornou uma estrutura inválida para prescrição magistral.'
+    });
   } catch (error: any) {
-    console.warn('AI call bypassed for prescription, activating clinical fallback:', error?.message || error);
-    res.json({ success: true, data: fallbackPrescription, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    const status = error instanceof UpstreamAIError ? error.status : 500;
+    console.error('Prescription generator error:', error?.message || error);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Erro ao gerar prescrição magistral no servidor.'
+    });
   }
 });
 
@@ -638,10 +709,17 @@ Retorne estritamente em formato JSON estruturado com:
       });
     }
 
-    res.json({ success: true, data: fallbackProcedure, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    return res.status(502).json({
+      success: false,
+      error: 'O modelo retornou uma estrutura inválida para guia de procedimento.'
+    });
   } catch (error: any) {
-    console.warn('AI call bypassed for procedure guide, activating clinical fallback:', error?.message || error);
-    res.json({ success: true, data: fallbackProcedure, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    const status = error instanceof UpstreamAIError ? error.status : 500;
+    console.error('Procedure guide error:', error?.message || error);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Erro ao gerar guia de procedimento no servidor.'
+    });
   }
 });
 
@@ -705,10 +783,17 @@ Retorne estritamente em formato JSON com:
       });
     }
 
-    res.json({ success: true, data: fallbackPostCare, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    return res.status(502).json({
+      success: false,
+      error: 'O modelo retornou uma estrutura inválida para orientações pós-procedimento.'
+    });
   } catch (error: any) {
-    console.warn('AI call bypassed for post-care, activating clinical fallback:', error?.message || error);
-    res.json({ success: true, data: fallbackPostCare, providerUsed: 'Motor Clínico ConsuDerme (Local)' });
+    const status = error instanceof UpstreamAIError ? error.status : 500;
+    console.error('Post-care generator error:', error?.message || error);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Erro ao gerar orientações pós-procedimento no servidor.'
+    });
   }
 });
 
@@ -857,7 +942,18 @@ Como posso detalhar melhor a conduta para este caso específico?`;
 app.post('/api/copilot/dermia-chat', async (req, res) => {
   const { message, conversationHistory, doctorProfile, preferredProvider } = req.body;
   try {
-    const systemInstruction = `Você é a DERMIA, a Inteligência Artificial e Copiloto Clínico Especializado do consultório CONSUDERME (ConsuDermi).
+    if (preferredProvider === 'clinical_engine') {
+      const localResponse = generateDermiaFallbackResponse(message, doctorProfile);
+      return res.json({
+        success: true,
+        response: localResponse,
+        providerUsed: 'Motor Clínico ConsuDerme (Local)',
+        model: 'dermia-clinical-safety-v1',
+        isFreeTier: true
+      });
+    }
+
+    const systemInstruction = `Você é a DERMIA, a Inteligência Artificial e Copiloto Clínico Especializado do consultório CONSUDERME (ConsuDerme).
 Você foi desenvolvida para prestar suporte em tempo real a médicos dermatologistas e profissionais de estética médica.
 Suas competências incluem:
 1. Raciocínio clínico dermatológico, diagnóstico diferencial e oncologia cutânea (Melanoma, CBC, CEC, regra ABCDE, dermatoscopia).
@@ -882,34 +978,66 @@ Médico atendido: ${doctorProfile?.name || 'Doutor(a)'} (CRM: ${doctorProfile?.c
       preferredProvider
     });
 
-    if (aiResult?.text && aiResult.text.trim().length > 0) {
-      return res.json({
-        success: true,
-        response: aiResult.text,
-        providerUsed: aiResult.providerUsed,
-        model: aiResult.model,
-        isFreeTier: aiResult.isFreeTier
-      });
-    } else {
-      const fallback = generateDermiaFallbackResponse(message, doctorProfile);
-      return res.json({
-        success: true,
-        response: fallback,
-        providerUsed: 'Motor Clínico ConsuDerme (Local)',
-        model: 'dermia-clinical-safety-v1',
-        isFreeTier: true
-      });
-    }
-  } catch (error: any) {
-    console.warn('AI call bypassed, activating DermIA Clinical Reasoning Engine:', error?.message || error);
-    const fallback = generateDermiaFallbackResponse(message, doctorProfile);
     return res.json({
       success: true,
-      response: fallback,
-      providerUsed: 'Motor Clínico ConsuDerme (Local)',
-      model: 'dermia-clinical-safety-v1',
-      isFreeTier: true
+      response: aiResult.text,
+      providerUsed: aiResult.providerUsed,
+      model: aiResult.model,
+      isFreeTier: aiResult.isFreeTier
     });
+  } catch (error: any) {
+    const status = error instanceof UpstreamAIError ? error.status : 500;
+    console.error('DermIA chat error:', error?.message || error);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Erro ao comunicar com o servidor da DermIA.'
+    });
+  }
+});
+
+// COPILOTO: DermIA Chat Streaming (SSE via server-side @google/genai)
+app.post('/api/copilot/dermia-chat/stream', async (req, res) => {
+  const { message, conversationHistory, doctorProfile } = req.body;
+  const ai = getGeminiAI();
+  if (!ai) {
+    return res.status(503).json({
+      success: false,
+      error: 'Chave da API Gemini não configurada no servidor. Verifique GEMINI_API_KEY em Settings > Secrets.'
+    });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const systemInstruction = `Você é a DERMIA, a Inteligência Artificial e Copiloto Clínico Especializado do consultório CONSUDERME.
+Médico atendido: ${doctorProfile?.name || 'Doutor(a)'} (CRM: ${doctorProfile?.crm || '---'}/${doctorProfile?.uf || 'UF'}).
+Responda em Português do Brasil com rigor dermatológico (SBD/CFM).`;
+
+    let formattedContents = '';
+    if (conversationHistory && Array.isArray(conversationHistory)) {
+      formattedContents += conversationHistory.map((msg: any) => `${msg.sender === 'user' ? 'Médico' : 'DermIA'}: ${msg.text}`).join('\n') + '\n';
+    }
+    formattedContents += `Médico: ${message}`;
+
+    const stream = await ai.models.generateContentStream({
+      model: GEMINI_MODEL,
+      contents: formattedContents,
+      config: { systemInstruction }
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.text) {
+        res.write(`data: ${JSON.stringify({ text: chunk.text, model: GEMINI_MODEL })}\n\n`);
+      }
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (error: any) {
+    console.error('DermIA stream error:', error?.message || error);
+    res.write(`data: ${JSON.stringify({ error: error?.message || 'Erro no streaming da DermIA.' })}\n\n`);
+    res.end();
   }
 });
 
