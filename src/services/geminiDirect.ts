@@ -7,6 +7,7 @@ import {
   ProcedureGuideResponse, 
   PostCareResponse 
 } from '../types';
+import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
 
 const GEMINI_MODEL = 'gemini-3.7-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -166,13 +167,18 @@ Suas diretrizes fundamentais:
 6. Responda em Português do Brasil com clareza, rigor científico e objetividade.
 Médico usuário: ${doctorProfile.name || 'Dermatologista'} (CRM: ${doctorProfile.crm || 'Médico'}/${doctorProfile.uf || 'BR'}).`;
 
+  const safeHistory = safeArray<{ sender?: string; text?: string }>(conversationHistory);
   let formattedHistory = '';
-  if (conversationHistory.length > 0) {
+  if (safeHistory.length > 0) {
     formattedHistory = 'HISTÓRICO RECENTE DA CONVERSA:\n' + 
-      conversationHistory.slice(-4).map(m => `${m.sender === 'user' ? 'Médico' : 'DermIA'}: ${m.text}`).join('\n') + '\n\n';
+      safeJoin(
+        safeHistory.slice(-4).map(m => `${m?.sender === 'user' ? 'Médico' : 'DermIA'}: ${safeString(m?.text)}`),
+        '\n'
+      ) + '\n\n';
   }
 
-  const fullPrompt = `${formattedHistory}Pergunta/Caso do Médico: ${message}\n\nForneça uma resposta clínica estruturada, científica e prática:`;
+  const safeMsg = safeString(message);
+  const fullPrompt = `${formattedHistory}Pergunta/Caso do Médico: ${safeMsg}\n\nForneça uma resposta clínica estruturada, científica e prática:`;
 
   try {
     const rawText = await callGeminiRest(fullPrompt, systemInstruction, false);
@@ -202,26 +208,36 @@ export async function directDifferentialDiagnosis(params: {
   complaint: string;
   evolutionTime: string;
   topography: string;
-  symptoms: string[];
+  symptoms: string | string[];
   previousTreatments: string;
   comorbidities: string;
   allergies: string;
   photoDesc: string;
 }): Promise<DifferentialDiagnosisResponse> {
+  const safeFitzpatrick = safeString(params?.fitzpatrick, 'III');
+  const safeComplaint = safeString(params?.complaint);
+  const safeEvolutionTime = safeString(params?.evolutionTime);
+  const safeTopography = safeString(params?.topography);
+  const safeSymptoms = safeJoin(params?.symptoms) || 'Nenhum';
+  const safePreviousTreatments = safeString(params?.previousTreatments) || 'Nenhum';
+  const safeComorbidities = safeString(params?.comorbidities) || 'Nenhuma';
+  const safeAllergies = safeString(params?.allergies) || 'Nega';
+  const safePhotoDesc = safeString(params?.photoDesc) || 'Não especificada';
+
   const systemInstruction = `Você é o COPILOTO DE DIAGNÓSTICO DIFERENCIAL E SEMIOLOGIA DERMATOLÓGICA do CONSUDERME.
 Atuando com o modelo Gemini 3.7 Flash, analise meticulosamente os dados semiológicos, fototipo e suspeitas de neoplasias malignas cutâneas (Melanoma, CBC, CEC).
 IMPORTANTE: Retorne ESTRITAMENTE um objeto JSON válido, sem texto introdutório ou conclusivo fora do JSON.`;
 
   const prompt = `Analise os dados clínicos dermatológicos abaixo e retorne um JSON estruturado:
-- Fototipo de Fitzpatrick: ${params.fitzpatrick}
-- Queixa Principal / HMA: ${params.complaint}
-- Tempo de Evolução: ${params.evolutionTime}
-- Topografia da Lesão: ${params.topography}
-- Sintomas Associados: ${params.symptoms.join(', ') || 'Nenhum'}
-- Tratamentos Prévios: ${params.previousTreatments || 'Nenhum'}
-- Comorbidades: ${params.comorbidities || 'Nenhuma'}
-- Alergias: ${params.allergies || 'Nega'}
-- Descrição da Lesão: ${params.photoDesc || 'Não especificada'}
+- Fototipo de Fitzpatrick: ${safeFitzpatrick}
+- Queixa Principal / HMA: ${safeComplaint}
+- Tempo de Evolução: ${safeEvolutionTime}
+- Topografia da Lesão: ${safeTopography}
+- Sintomas Associados: ${safeSymptoms}
+- Tratamentos Prévios: ${safePreviousTreatments}
+- Comorbidades: ${safeComorbidities}
+- Alergias: ${safeAllergies}
+- Descrição da Lesão: ${safePhotoDesc}
 
 Estrutura JSON obrigatória:
 {
@@ -239,10 +255,10 @@ Estrutura JSON obrigatória:
 }`;
 
   const fallback: DifferentialDiagnosisResponse = {
-    summary: `Paciente Fototipo ${params.fitzpatrick} com queixa cutânea em ${params.topography || 'pele'} com evolução de ${params.evolutionTime || 'tempo não determinado'}.`,
+    summary: `Paciente Fototipo ${safeFitzpatrick} com queixa cutânea em ${safeTopography || 'pele'} com evolução de ${safeEvolutionTime || 'tempo não determinado'}.`,
     differentials: [
       {
-        disease: params.complaint.toLowerCase().includes('mancha') ? 'Melasma Facial Recalcitrante' : 'Dermatite de Contato / Eczema Subagudo',
+        disease: safeComplaint.toLowerCase().includes('mancha') ? 'Melasma Facial Recalcitrante' : 'Dermatite de Contato / Eczema Subagudo',
         probability: 'Alta',
         clinicalRationale: 'Compatível com localização anatômica, histórico de exposição e fototipo cutâneo informado.',
         semiologyFeatures: 'Máculas hiperpigmentadas acastanhadas sem descamação em áreas fotoexpostas'
@@ -277,13 +293,26 @@ Estrutura JSON obrigatória:
 
   try {
     const rawText = await callGeminiRest(prompt, systemInstruction, true);
-    const parsed = extractPureJson<any>(rawText, fallback);
+    const parsed = extractPureJson<any>(rawText, fallback) || fallback;
+    const rawDiffs = safeArray<any>(parsed.differentials);
+    const rawRedFlags = safeArray<any>(parsed.redFlags);
+    const rawWorkup = safeArray<string>(parsed.diagnosticWorkup);
+
     return {
-      summary: parsed.summary || fallback.summary,
-      differentials: Array.isArray(parsed.differentials) && parsed.differentials.length > 0 ? parsed.differentials : fallback.differentials,
-      redFlags: Array.isArray(parsed.redFlags) ? parsed.redFlags : fallback.redFlags,
-      diagnosticWorkup: Array.isArray(parsed.diagnosticWorkup) ? parsed.diagnosticWorkup : fallback.diagnosticWorkup,
-      initialManagement: parsed.initialManagement || fallback.initialManagement
+      summary: safeString(parsed.summary, fallback.summary),
+      differentials: rawDiffs.length > 0 ? rawDiffs.map((d: any) => ({
+        disease: safeString(d?.disease, 'Hipótese Clínica'),
+        probability: safeString(d?.probability, 'Investigar'),
+        clinicalRationale: safeString(d?.clinicalRationale, ''),
+        semiologyFeatures: safeString(d?.semiologyFeatures, '')
+      })) : fallback.differentials,
+      redFlags: rawRedFlags.length > 0 ? rawRedFlags.map((r: any) => ({
+        warningTitle: safeString(r?.warningTitle, 'Alerta Clínico'),
+        severity: safeString(r?.severity, 'Atenção'),
+        actionProtocol: safeString(r?.actionProtocol, '')
+      })) : fallback.redFlags,
+      diagnosticWorkup: rawWorkup.length > 0 ? rawWorkup.map((w) => safeString(w)) : fallback.diagnosticWorkup,
+      initialManagement: safeString(parsed.initialManagement, fallback.initialManagement)
     };
   } catch (err) {
     console.warn('Gemini REST differential diagnosis failed, using clinical safety fallback:', err);
@@ -304,17 +333,24 @@ export async function directPrescriptionGenerator(params: {
   specialNotes?: string;
   doctorNotes?: string;
 }): Promise<PrescriptionResponse> {
+  const safeIndication = safeString(params?.indication, 'Tratamento Dermatológico');
+  const safeFitzpatrick = safeString(params?.fitzpatrick, 'III');
+  const safeSkinType = safeString(params?.skinType, 'Mista');
+  const safeVehiclePref = safeString(params?.vehiclePreference);
+  const safeSpecialNotes = safeString(params?.specialNotes);
+  const safeDoctorNotes = safeString(params?.doctorNotes);
+
   const systemInstruction = `Você é o PRESCRITOR MAGISTRAL E FARMACÊUTICO DERMATOLÓGICO ESPECIALIZADO do CONSUDERME.
 Atuando com o modelo Gemini 3.7 Flash, formule prescrições dermatológicas completas contendo fórmulas magistrais manipuladas individualizadas (veículo galênico, ativos com porcentagem exata e posologia), opções de produtos industriais complementares, estratégia de fotoproteção e rotina diária matinal e noturna.
 IMPORTANTE: Retorne ESTRITAMENTE um objeto JSON válido, sem texto introdutório ou conclusivo fora do JSON.`;
 
   const prompt = `Gere uma prescrição dermatológica magistral completa para:
-- Indicação Clínica: ${params.indication}
-- Fototipo: Fitzpatrick ${params.fitzpatrick}
-- Tipo de Pele: ${params.skinType}
-- Veículo Preferido: ${params.vehiclePreference || 'Mais adequado para a pele'}
-- Observações: ${params.specialNotes || 'Nenhuma'}
-${params.doctorNotes ? `- Anotações Adicionais: ${params.doctorNotes}` : ''}
+- Indicação Clínica: ${safeIndication}
+- Fototipo: Fitzpatrick ${safeFitzpatrick}
+- Tipo de Pele: ${safeSkinType}
+- Veículo Preferido: ${safeVehiclePref || 'Mais adequado para a pele'}
+- Observações: ${safeSpecialNotes || 'Nenhuma'}
+${safeDoctorNotes ? `- Anotações Adicionais: ${safeDoctorNotes}` : ''}
 
 Retorne este formato JSON obrigatório:
 {
@@ -353,8 +389,8 @@ Retorne este formato JSON obrigatório:
   const fallback: PrescriptionResponse = {
     magistralFormulas: [
       {
-        title: `Fórmula Magistral Personalizada (${params.indication || 'Tratamento Dermatológico'})`,
-        vehicle: params.vehiclePreference || (params.skinType.toLowerCase().includes('oleosa') ? 'Sérum Toque Seco não comedogênico q.s.p. 30g' : 'Creme Fosfolipídico Biomimético q.s.p. 30g'),
+        title: `Fórmula Magistral Personalizada (${safeIndication})`,
+        vehicle: safeVehiclePref || (safeSkinType.toLowerCase().includes('oleosa') ? 'Sérum Toque Seco não comedogênico q.s.p. 30g' : 'Creme Fosfolipídico Biomimético q.s.p. 30g'),
         actives: [
           { name: 'Ácido Tranexâmico', percentage: '3.0%', rationale: 'Inibe a via do plasminogênio e modula o componente vascular melanogênico' },
           { name: 'Niacinamida (Vitamina B3)', percentage: '4.0%', rationale: 'Bloqueio da transferência de melanossomas para os queratinócitos' },
@@ -369,7 +405,7 @@ Retorne este formato JSON obrigatório:
       { name: 'Gel de Limpeza Facial Dermatológico', activeIngredient: 'Syndet com Zinco PCA e Água Termal', posology: 'Lavar a face 2x ao dia' },
       { name: 'Fotoprotetor Fluido Mineral/Híbrido FPS 60 com Cor', activeIngredient: 'Óxidos de ferro e filtros de amplo espectro', posology: 'Aplicar pela manhã e reaplicar a cada 3 horas' }
     ],
-    photoprotectionStrategy: `Para o Fototipo ${params.fitzpatrick}, indicar protetor solar com cor (óxidos de ferro) para bloquear a Luz Visível e Luz Azul emitida por telas, prevenindo o efeito rebote pigmentar.`,
+    photoprotectionStrategy: `Para o Fototipo ${safeFitzpatrick}, indicar protetor solar com cor (óxidos de ferro) para bloquear a Luz Visível e Luz Azul emitida por telas, prevenindo o efeito rebote pigmentar.`,
     generalSkincareRoutine: {
       morning: [
         '1. Higienização suave com syndet facial',
@@ -385,29 +421,39 @@ Retorne este formato JSON obrigatório:
 
   try {
     const rawText = await callGeminiRest(prompt, systemInstruction, true);
-    const parsed = extractPureJson<any>(rawText, fallback);
+    const parsed = extractPureJson<any>(rawText, fallback) || fallback;
+    const rawFormulas = safeArray<any>(parsed.magistralFormulas);
+    const rawIndustrial = safeArray<any>(parsed.industrialOptions);
+    const morningRoutine = safeArray<string>(parsed.generalSkincareRoutine?.morning);
+    const nightRoutine = safeArray<string>(parsed.generalSkincareRoutine?.night);
 
     return {
-      magistralFormulas: Array.isArray(parsed.magistralFormulas) && parsed.magistralFormulas.length > 0
-        ? parsed.magistralFormulas.map((f: any) => ({
-            title: f.title || f.formulaTitle || 'Fórmula Magistral Personalizada',
-            vehicle: f.vehicle || f.vehicleSelected || 'Veículo q.s.p. 30g',
-            actives: Array.isArray(f.actives) ? f.actives.map((a: any) => ({
-              name: a.name || 'Ativo',
-              percentage: a.percentage || a.concentration || '1%',
-              rationale: a.rationale || a.action || 'Ação dermatológica'
-            })) : fallback.magistralFormulas[0].actives,
-            posology: f.posology || 'Aplicar à noite conforme orientação médica',
-            warnings: f.warnings || 'Uso externo. Evitar mucosas.'
+      magistralFormulas: rawFormulas.length > 0
+        ? rawFormulas.map((f: any) => ({
+            title: safeString(f?.title || f?.formulaTitle, 'Fórmula Magistral Personalizada'),
+            vehicle: safeString(f?.vehicle || f?.vehicleSelected, 'Veículo q.s.p. 30g'),
+            actives: safeArray<any>(f?.actives).length > 0
+              ? safeArray<any>(f?.actives).map((a: any) => ({
+                  name: safeString(a?.name, 'Ativo'),
+                  percentage: safeString(a?.percentage || a?.concentration, '1%'),
+                  rationale: safeString(a?.rationale || a?.action, 'Ação dermatológica')
+                }))
+              : fallback.magistralFormulas[0].actives,
+            posology: safeString(f?.posology, 'Aplicar à noite conforme orientação médica'),
+            warnings: safeString(f?.warnings, 'Uso externo. Evitar mucosas.')
           }))
         : fallback.magistralFormulas,
-      industrialOptions: Array.isArray(parsed.industrialOptions)
-        ? parsed.industrialOptions
+      industrialOptions: rawIndustrial.length > 0
+        ? rawIndustrial.map((ind: any) => ({
+            name: safeString(ind?.name, 'Dermocosmético'),
+            activeIngredient: safeString(ind?.activeIngredient, ''),
+            posology: safeString(ind?.posology, '')
+          }))
         : fallback.industrialOptions,
-      photoprotectionStrategy: parsed.photoprotectionStrategy || fallback.photoprotectionStrategy,
+      photoprotectionStrategy: safeString(parsed.photoprotectionStrategy, fallback.photoprotectionStrategy),
       generalSkincareRoutine: {
-        morning: Array.isArray(parsed.generalSkincareRoutine?.morning) ? parsed.generalSkincareRoutine.morning : fallback.generalSkincareRoutine.morning,
-        night: Array.isArray(parsed.generalSkincareRoutine?.night) ? parsed.generalSkincareRoutine.night : fallback.generalSkincareRoutine.night
+        morning: morningRoutine.length > 0 ? morningRoutine.map((s) => safeString(s)) : fallback.generalSkincareRoutine.morning,
+        night: nightRoutine.length > 0 ? nightRoutine.map((s) => safeString(s)) : fallback.generalSkincareRoutine.night
       }
     };
   } catch (err) {
@@ -426,14 +472,18 @@ export async function directProcedureGuide(params: {
   targetArea: string;
   patientProfile?: string;
 }): Promise<ProcedureGuideResponse> {
+  const safeProcedureType = safeString(params?.procedureType, 'Toxina Botulínica e Injetáveis');
+  const safeTargetArea = safeString(params?.targetArea, 'Face');
+  const safePatientProfile = safeString(params?.patientProfile, 'Adulto padrão');
+
   const systemInstruction = `Você é o GUIA ANATÔMICO E DE PROCEDIMENTOS INJETÁVEIS do CONSUDERME.
 Atuando com o modelo Gemini 3.7 Flash, forneça parâmetros anatômicos precisos (camadas 1 a 5 de Mendelson), zonas de risco vascular (Artérias Facial, Angular, Supratroclear, Supraorbital, Labiais), dosimetria em UI ou mL e o protocolo de emergência imediato com Hialuronidase.
 IMPORTANTE: Retorne ESTRITAMENTE um objeto JSON válido, sem texto introdutório ou conclusivo fora do JSON.`;
 
   const prompt = `Gere o guia anatômico de segurança para:
-- Procedimento: ${params.procedureType}
-- Região Alvo: ${params.targetArea}
-- Perfil do Paciente: ${params.patientProfile || 'Adulto padrão'}
+- Procedimento: ${safeProcedureType}
+- Região Alvo: ${safeTargetArea}
+- Perfil do Paciente: ${safePatientProfile}
 
 Estrutura JSON obrigatória:
 {
@@ -451,7 +501,7 @@ Estrutura JSON obrigatória:
 }`;
 
   const fallback: ProcedureGuideResponse = {
-    procedureName: `${params.procedureType || 'Toxina Botulínica e Injetáveis'} — Mapeamento Anatômico de Segurança`,
+    procedureName: `${safeProcedureType} — Mapeamento Anatômico de Segurança`,
     anatomicalPlanes: 'Músculos da mímica facial (intramuscular estrito para toxina) e Camadas 2 e 4 de Mendelson (subcutâneo e supraperiosteal para preenchedores).',
     dosageAndPoints: [
       { area: 'Glabela (M. Prócero)', recommendedUnitsOrVolume: '4 a 6 UI', injectionTechnique: 'Ponto único perpendicular 90°, inserção intramuscular profunda.', targetMuscleOrStructure: 'M. Prócero' },
@@ -475,15 +525,28 @@ Estrutura JSON obrigatória:
 
   try {
     const rawText = await callGeminiRest(prompt, systemInstruction, true);
-    const parsed = extractPureJson<any>(rawText, fallback);
+    const parsed = extractPureJson<any>(rawText, fallback) || fallback;
+    const rawDosage = safeArray<any>(parsed.dosageAndPoints);
+    const rawDanger = safeArray<any>(parsed.dangerZonesAndVessels);
+    const rawComplications = safeArray<string>(parsed.potentialComplications);
+
     return {
-      procedureName: parsed.procedureName || fallback.procedureName,
-      anatomicalPlanes: parsed.anatomicalPlanes || fallback.anatomicalPlanes,
-      dosageAndPoints: Array.isArray(parsed.dosageAndPoints) && parsed.dosageAndPoints.length > 0 ? parsed.dosageAndPoints : fallback.dosageAndPoints,
-      dangerZonesAndVessels: Array.isArray(parsed.dangerZonesAndVessels) ? parsed.dangerZonesAndVessels : fallback.dangerZonesAndVessels,
-      potentialComplications: Array.isArray(parsed.potentialComplications) ? parsed.potentialComplications : fallback.potentialComplications,
-      emergencyProtocol: parsed.emergencyProtocol || fallback.emergencyProtocol,
-      postCareSummary: parsed.postCareSummary || fallback.postCareSummary
+      procedureName: safeString(parsed.procedureName, fallback.procedureName),
+      anatomicalPlanes: safeString(parsed.anatomicalPlanes, fallback.anatomicalPlanes),
+      dosageAndPoints: rawDosage.length > 0 ? rawDosage.map((dp: any) => ({
+        area: safeString(dp?.area, ''),
+        recommendedUnitsOrVolume: safeString(dp?.recommendedUnitsOrVolume, ''),
+        injectionTechnique: safeString(dp?.injectionTechnique, ''),
+        targetMuscleOrStructure: safeString(dp?.targetMuscleOrStructure, '')
+      })) : fallback.dosageAndPoints,
+      dangerZonesAndVessels: rawDanger.length > 0 ? rawDanger.map((dz: any) => ({
+        vessel: safeString(dz?.vessel, ''),
+        dangerLocation: safeString(dz?.dangerLocation, ''),
+        safetyRule: safeString(dz?.safetyRule, '')
+      })) : fallback.dangerZonesAndVessels,
+      potentialComplications: rawComplications.length > 0 ? rawComplications.map((c) => safeString(c)) : fallback.potentialComplications,
+      emergencyProtocol: safeString(parsed.emergencyProtocol, fallback.emergencyProtocol),
+      postCareSummary: safeString(parsed.postCareSummary, fallback.postCareSummary)
     };
   } catch (err) {
     console.warn('Gemini REST procedure guide failed, using clinical fallback:', err);
@@ -503,16 +566,22 @@ export async function directPostCareGenerator(params: {
   clinicPhone: string;
   specificNotes?: string;
 }): Promise<PostCareResponse> {
+  const safeProc = safeString(params?.procedure, 'Procedimento Dermatológico');
+  const safePatient = safeString(params?.patientName, 'Paciente');
+  const safeDoctor = safeString(params?.doctorName, 'seu dermatologista');
+  const safePhone = safeString(params?.clinicPhone, 'ConsuDerme');
+  const safeNotes = safeString(params?.specificNotes, 'Nenhuma');
+
   const systemInstruction = `Você é o gerador de orientações pós-procedimento dermatológico do CONSUDERME.
 Atuando com o modelo Gemini 3.7 Flash, gere orientações acolhedoras, profissionais e perfeitamente formatadas para envio direto via WhatsApp ou impressão de folheto timbrado.
 IMPORTANTE: Retorne ESTRITAMENTE um objeto JSON válido, sem texto introdutório ou conclusivo fora do JSON.`;
 
   const prompt = `Gere orientações pós-procedimento para:
-- Procedimento: ${params.procedure}
-- Paciente: ${params.patientName}
-- Médico: ${params.doctorName}
-- Telefone de Contato da Clínica: ${params.clinicPhone}
-- Observações Específicas: ${params.specificNotes || 'Nenhuma'}
+- Procedimento: ${safeProc}
+- Paciente: ${safePatient}
+- Médico: ${safeDoctor}
+- Telefone de Contato da Clínica: ${safePhone}
+- Observações Específicas: ${safeNotes}
 
 Retorne o JSON:
 {
@@ -522,8 +591,8 @@ Retorne o JSON:
 }`;
 
   const fallback: PostCareResponse = {
-    whatsappMessage: `✨ *Orientações Pós-Procedimento — ${params.procedure || 'Procedimento Dermatológico'}* ✨\n\nOlá, *${params.patientName || 'Paciente'}*! Aqui estão as recomendações do *${params.doctorName || 'seu dermatologista'}* para garantir o melhor resultado e a sua total segurança:\n\n*Nas primeiras 4 a 6 horas:*\n• Mantenha a cabeça elevada, sem deitar ou abaixar o tronco.\n• Evite tocar, coçar ou pressionar os locais tratados.\n\n*Nas primeiras 24 a 48 horas:*\n• Não pratique exercícios físicos intensos nem frequente saunas/piscinas.\n• Evite exposição solar direta e use protetor solar FPS 50+.\n• Caso surjam pequenos hematomas, aplique compressas geladas delicadamente.\n\n📞 Em caso de dúvidas ou necessidade, entre em contato com nossa equipe: *${params.clinicPhone || 'ConsuDerme'}*.`,
-    printedDocument: `ORIENTAÇÕES MÉDICAS PÓS-PROCEDIMENTO DERMATOLÓGICO\n\nPaciente: ${params.patientName || 'Paciente'}\nProcedimento Realizado: ${params.procedure || 'Procedimento Injetável/Clínico'}\nMédico Responsável: ${params.doctorName || 'Dermatologista Responsável'}\n\n1. CUIDADOS GERAIS IMEDIATOS (PRIMEIRAS 24 HORAS):\n- Não massagear nem manipular vigorosamente a região tratada.\n- Evitar deitar-se em decúbito dorsal ou ventral nas primeiras 4 horas após o procedimento.\n- Não realizar atividade física de alto impacto ou exposição a fontes intensas de calor (fornos, saunas, sol).\n\n2. HIGIENE E FOTOPROTEÇÃO:\n- Lavar o rosto com sabonete neutro ou suave syndet sem esfregar.\n- Aplicar protetor solar de amplo espectro (FPS >= 50) e renovar a aplicação a cada 3 horas.\n- Suspender ácidos ou esfoliantes químicos por 5 a 7 dias conforme orientação médica.\n\n3. SINAIS DE ALARME QUE EXIGEM AVALIAÇÃO MÉDICA IMEDIATA:\n- Dor intensa, contínua e desproporcional ao procedimento.\n- Palidez, branqueamento cutâneo ou manchas arroxeadas/marmorizadas no local ou proximidades.\n- Alterações visuais súbitas (visão turva, perda de campo visual ou dor retrobulbar).\n\nContato de Urgência da Clínica: ${params.clinicPhone || 'Consulte seu médico'}.`,
+    whatsappMessage: `✨ *Orientações Pós-Procedimento — ${safeProc}* ✨\n\nOlá, *${safePatient}*! Aqui estão as recomendações do *${safeDoctor}* para garantir o melhor resultado e a sua total segurança:\n\n*Nas primeiras 4 a 6 horas:*\n• Mantenha a cabeça elevada, sem deitar ou abaixar o tronco.\n• Evite tocar, coçar ou pressionar os locais tratados.\n\n*Nas primeiras 24 a 48 horas:*\n• Não pratique exercícios físicos intensos nem frequente saunas/piscinas.\n• Evite exposição solar direta e use protetor solar FPS 50+.\n• Caso surjam pequenos hematomas, aplique compressas geladas delicadamente.\n\n📞 Em caso de dúvidas ou necessidade, entre em contato com nossa equipe: *${safePhone}*.`,
+    printedDocument: `ORIENTAÇÕES MÉDICAS PÓS-PROCEDIMENTO DERMATOLÓGICO\n\nPaciente: ${safePatient}\nProcedimento Realizado: ${safeProc}\nMédico Responsável: ${safeDoctor}\n\n1. CUIDADOS GERAIS IMEDIATOS (PRIMEIRAS 24 HORAS):\n- Não massagear nem manipular vigorosamente a região tratada.\n- Evitar deitar-se em decúbito dorsal ou ventral nas primeiras 4 horas após o procedimento.\n- Não realizar atividade física de alto impacto ou exposição a fontes intensas de calor (fornos, saunas, sol).\n\n2. HIGIENE E FOTOPROTEÇÃO:\n- Lavar o rosto com sabonete neutro ou suave syndet sem esfregar.\n- Aplicar protetor solar de amplo espectro (FPS >= 50) e renovar a aplicação a cada 3 horas.\n- Suspender ácidos ou esfoliantes químicos por 5 a 7 dias conforme orientação médica.\n\n3. SINAIS DE ALARME QUE EXIGEM AVALIAÇÃO MÉDICA IMEDIATA:\n- Dor intensa, contínua e desproporcional ao procedimento.\n- Palidez, branqueamento cutâneo ou manchas arroxeadas/marmorizadas no local ou proximidades.\n- Alterações visuais súbitas (visão turva, perda de campo visual ou dor retrobulbar).\n\nContato de Urgência da Clínica: ${safePhone}.`,
     urgentWarningSigns: [
       'Dor intensa que não cede com analgésicos comuns',
       'Branqueamento ou coloração acinzentada/aroxeada da pele',
@@ -534,11 +603,12 @@ Retorne o JSON:
 
   try {
     const rawText = await callGeminiRest(prompt, systemInstruction, true);
-    const parsed = extractPureJson<any>(rawText, fallback);
+    const parsed = extractPureJson<any>(rawText, fallback) || fallback;
+    const rawWarnings = safeArray<string>(parsed.urgentWarningSigns);
     return {
-      whatsappMessage: parsed.whatsappMessage || fallback.whatsappMessage,
-      printedDocument: parsed.printedDocument || fallback.printedDocument,
-      urgentWarningSigns: Array.isArray(parsed.urgentWarningSigns) && parsed.urgentWarningSigns.length > 0 ? parsed.urgentWarningSigns : fallback.urgentWarningSigns
+      whatsappMessage: safeString(parsed.whatsappMessage, fallback.whatsappMessage),
+      printedDocument: safeString(parsed.printedDocument, fallback.printedDocument),
+      urgentWarningSigns: rawWarnings.length > 0 ? rawWarnings.map((w) => safeString(w)) : fallback.urgentWarningSigns
     };
   } catch (err) {
     console.warn('Gemini REST post-care failed, using clinical fallback:', err);

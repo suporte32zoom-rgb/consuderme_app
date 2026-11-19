@@ -17,6 +17,8 @@ import { DermiaCopilot } from './components/DermiaCopilot';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { usePWA } from './hooks/usePWA';
 import { DoctorProfile, NavigationTab, FitzpatrickType } from './types';
+import { safeStorageGet, safeStorageSet, safeString } from './utils/safeHelpers';
+import { ConsultationHistoryEntry } from './utils/consultationStorage';
 
 // Default clean doctor profile (ready for real medical data entry)
 const DEFAULT_DOCTOR_PROFILE: DoctorProfile = {
@@ -46,18 +48,15 @@ export default function App() {
   } = usePWA();
 
   const [doctorProfile, setDoctorProfile] = useState<DoctorProfile>(() => {
-    const saved = localStorage.getItem('consuderme_doctor_profile');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return DEFAULT_DOCTOR_PROFILE;
-      }
-    }
-    return DEFAULT_DOCTOR_PROFILE;
+    const saved = safeStorageGet<Partial<DoctorProfile>>('consuderme_doctor_profile', DEFAULT_DOCTOR_PROFILE);
+    return {
+      ...DEFAULT_DOCTOR_PROFILE,
+      ...(saved && typeof saved === 'object' ? saved : {})
+    };
   });
 
   const [showDoctorModal, setShowDoctorModal] = useState(false);
+  const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<ConsultationHistoryEntry | null>(null);
   const [prescriptionInitialData, setPrescriptionInitialData] = useState<{
     indication?: string;
     fitzpatrick?: FitzpatrickType;
@@ -83,7 +82,7 @@ export default function App() {
 
   // Save profile to local storage whenever updated
   useEffect(() => {
-    localStorage.setItem('consuderme_doctor_profile', JSON.stringify(doctorProfile));
+    safeStorageSet('consuderme_doctor_profile', doctorProfile);
   }, [doctorProfile]);
 
   const handleUpdateDoctor = (e: React.FormEvent) => {
@@ -98,6 +97,11 @@ export default function App() {
 
   const handleNavigateToPostCare = (_data: { procedure: string; patientName: string }) => {
     setActiveTab('procedures');
+  };
+
+  const handleSelectConsultationFromHistory = (entry: ConsultationHistoryEntry) => {
+    setSelectedHistoryEntry(entry);
+    setActiveTab('clinical');
   };
 
   return (
@@ -137,12 +141,14 @@ export default function App() {
             onOpenDermia={() => setIsDermiaOpen(true)}
             onOpenPWAInstall={() => setShowPWAModal(true)}
             isPWAInstalled={isInstalled}
+            onSelectConsultation={handleSelectConsultationFromHistory}
           />
         )}
 
         {activeTab === 'clinical' && (
           <ClinicalConsultationModule
             doctorProfile={doctorProfile}
+            initialConsultation={selectedHistoryEntry}
             onNavigateToPrescription={handleNavigateToPrescription}
             onNavigateToPostCare={handleNavigateToPostCare}
           />
@@ -259,7 +265,7 @@ export default function App() {
                 <label className="block text-slate-700 font-bold mb-1">Nome Completo</label>
                 <input
                   type="text"
-                  value={doctorProfile.name}
+                  value={safeString(doctorProfile.name)}
                   onChange={(e) => setDoctorProfile({ ...doctorProfile, name: e.target.value })}
                   placeholder="Ex: Dra. Mariana Vasconcelos"
                   className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -271,7 +277,7 @@ export default function App() {
                   <label className="block text-slate-700 font-bold mb-1">CRM</label>
                   <input
                     type="text"
-                    value={doctorProfile.crm}
+                    value={safeString(doctorProfile.crm)}
                     onChange={(e) => setDoctorProfile({ ...doctorProfile, crm: e.target.value })}
                     placeholder="123456"
                     className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -281,7 +287,7 @@ export default function App() {
                   <label className="block text-slate-700 font-bold mb-1">UF</label>
                   <input
                     type="text"
-                    value={doctorProfile.uf}
+                    value={safeString(doctorProfile.uf)}
                     onChange={(e) => setDoctorProfile({ ...doctorProfile, uf: e.target.value.toUpperCase() })}
                     placeholder="SP"
                     className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -291,7 +297,7 @@ export default function App() {
                   <label className="block text-slate-700 font-bold mb-1">RQE</label>
                   <input
                     type="text"
-                    value={doctorProfile.rqe || ''}
+                    value={safeString(doctorProfile.rqe)}
                     onChange={(e) => setDoctorProfile({ ...doctorProfile, rqe: e.target.value })}
                     placeholder="7890"
                     className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -303,7 +309,7 @@ export default function App() {
                 <label className="block text-slate-700 font-bold mb-1">Nome do Consultório / Clínica</label>
                 <input
                   type="text"
-                  value={doctorProfile.clinicName}
+                  value={safeString(doctorProfile.clinicName)}
                   onChange={(e) => setDoctorProfile({ ...doctorProfile, clinicName: e.target.value })}
                   placeholder="Ex: Instituto da Pele Mariana Vasconcelos"
                   className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -315,7 +321,7 @@ export default function App() {
                   <label className="block text-slate-700 font-bold mb-1">Telefone / WhatsApp</label>
                   <input
                     type="text"
-                    value={doctorProfile.phone}
+                    value={safeString(doctorProfile.phone)}
                     onChange={(e) => setDoctorProfile({ ...doctorProfile, phone: e.target.value })}
                     placeholder="(11) 98765-4321"
                     className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -325,7 +331,7 @@ export default function App() {
                   <label className="block text-slate-700 font-bold mb-1">E-mail Profissional</label>
                   <input
                     type="email"
-                    value={doctorProfile.email}
+                    value={safeString(doctorProfile.email)}
                     onChange={(e) => setDoctorProfile({ ...doctorProfile, email: e.target.value })}
                     placeholder="doutora@clinicadepele.med.br"
                     className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"
@@ -337,7 +343,7 @@ export default function App() {
                 <label className="block text-slate-700 font-bold mb-1">Endereço do Consultório</label>
                 <input
                   type="text"
-                  value={doctorProfile.address}
+                  value={safeString(doctorProfile.address)}
                   onChange={(e) => setDoctorProfile({ ...doctorProfile, address: e.target.value })}
                   placeholder="Ex: Av. Brigadeiro Faria Lima, 2000 - Conj 104 - SP"
                   className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400"

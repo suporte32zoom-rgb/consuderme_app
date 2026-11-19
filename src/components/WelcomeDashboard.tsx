@@ -25,6 +25,8 @@ import {
   Wifi
 } from 'lucide-react';
 import { DoctorProfile, NavigationTab } from '../types';
+import { ConsultationHistory } from './ConsultationHistory';
+import { ConsultationHistoryEntry } from '../utils/consultationStorage';
 
 interface WelcomeDashboardProps {
   doctorProfile: DoctorProfile;
@@ -33,6 +35,7 @@ interface WelcomeDashboardProps {
   onOpenDermia: () => void;
   onOpenPWAInstall?: () => void;
   isPWAInstalled?: boolean;
+  onSelectConsultation?: (entry: ConsultationHistoryEntry) => void;
 }
 
 export const WelcomeDashboard: React.FC<WelcomeDashboardProps> = ({
@@ -41,7 +44,8 @@ export const WelcomeDashboard: React.FC<WelcomeDashboardProps> = ({
   onOpenSettings,
   onOpenDermia,
   onOpenPWAInstall,
-  isPWAInstalled
+  isPWAInstalled,
+  onSelectConsultation
 }) => {
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -405,6 +409,13 @@ export const WelcomeDashboard: React.FC<WelcomeDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* RECENT CONSULTATIONS HISTORY */}
+      <ConsultationHistory
+        compact
+        maxItems={5}
+        onSelectConsultation={onSelectConsultation}
+      />
 
       {/* PWA APPLICATIVE STATUS & INSTALL CARD */}
       <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-teal-950/40 to-slate-900 border border-teal-500/30 p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Stethoscope, 
   Sparkles, 
@@ -22,20 +22,26 @@ import {
   Mic,
   MicOff,
   Volume2,
-  VolumeX
+  VolumeX,
+  Save
 } from 'lucide-react';
 import { FITZPATRICK_SCALE, CLINICAL_PRESETS, FitzpatrickInfo } from '../data/clinicalTemplates';
 import { FitzpatrickType, DifferentialDiagnosisResponse, DoctorProfile, PatientConsultation } from '../types';
 import { directDifferentialDiagnosis } from '../services/geminiDirect';
+import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
+import { ConsultationHistoryEntry, saveConsultationToHistory } from '../utils/consultationStorage';
+import { ConsultationHistory } from './ConsultationHistory';
 
 interface ClinicalConsultationModuleProps {
   doctorProfile: DoctorProfile;
+  initialConsultation?: ConsultationHistoryEntry | null;
   onNavigateToPrescription?: (patientData: { indication: string; fitzpatrick: FitzpatrickType; complaint: string }) => void;
   onNavigateToPostCare?: (patientData: { procedure: string; patientName: string }) => void;
 }
 
 export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProps> = ({
   doctorProfile,
+  initialConsultation,
   onNavigateToPrescription,
   onNavigateToPostCare
 }) => {
@@ -59,11 +65,34 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
   const [isDictatingComplaint, setIsDictatingComplaint] = useState(false);
   const [isSpeakingAnalysis, setIsSpeakingAnalysis] = useState(false);
 
+  const [savedNotice, setSavedNotice] = useState(false);
+
+  // Load initial consultation if passed from Dashboard
+  useEffect(() => {
+    if (initialConsultation) {
+      handleLoadFromHistory(initialConsultation);
+    }
+  }, [initialConsultation]);
+
+  const handleLoadFromHistory = (entry: ConsultationHistoryEntry) => {
+    setPatientName(safeString(entry.patientName) === 'Paciente não identificado' ? '' : safeString(entry.patientName));
+    setFitzpatrick(entry.fitzpatrick || 'III');
+    setComplaint(safeString(entry.complaint));
+    setEvolutionTime(safeString(entry.evolutionTime));
+    setTopography(safeString(entry.topography));
+    setSymptoms(safeString(entry.symptoms));
+    setPreviousTreatments(safeString(entry.previousTreatments));
+    setComorbidities(safeString(entry.comorbidities));
+    setAllergies(safeString(entry.allergies));
+    setPhotoDesc(safeString(entry.photoDesc));
+    setError(null);
+  };
+
   // Dictate complaint via microphone
   const toggleComplaintDictation = () => {
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass) {
-      alert('Reconhecimento de voz não suportado neste navegador. Use o Google Chrome ou Edge.');
+      setError('Reconhecimento de voz não suportado neste navegador. Use o Google Chrome ou Edge.');
       return;
     }
 
@@ -107,7 +136,11 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
       return;
     }
 
-    const textToSpeak = `Resumo clínico para o paciente com fototipo ${fitzpatrick}. Diagnósticos diferenciais mais prováveis: ${aiResult.differentials.map(d => `${d.disease}, probabilidade ${d.probability}`).join('. ')}. Conduta inicial recomendada: ${aiResult.initialManagement}`;
+    const diffSummary = safeJoin(
+      safeArray<any>(aiResult.differentials).map(d => `${safeString(d?.disease)}, probabilidade ${safeString(d?.probability)}`),
+      '. '
+    );
+    const textToSpeak = `Resumo clínico para o paciente com fototipo ${safeString(fitzpatrick, 'III')}. Diagnósticos diferenciais mais prováveis: ${diffSummary || 'em avaliação'}. Conduta inicial recomendada: ${safeString(aiResult.initialManagement)}`;
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.lang = 'pt-BR';
     utterance.rate = 1.05;
@@ -121,14 +154,14 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
   const handleApplyPreset = (presetId: string) => {
     const preset = CLINICAL_PRESETS.find(p => p.id === presetId);
     if (!preset) return;
-    setFitzpatrick(preset.fitzpatrick);
-    setComplaint(preset.complaint);
-    setEvolutionTime(preset.evolutionTime);
-    setTopography(preset.topography);
-    setSymptoms(preset.symptoms);
-    setPreviousTreatments(preset.previousTreatments);
-    setComorbidities(preset.comorbidities);
-    setAllergies(preset.allergies);
+    setFitzpatrick(preset.fitzpatrick || 'III');
+    setComplaint(safeString(preset.complaint));
+    setEvolutionTime(safeString(preset.evolutionTime));
+    setTopography(safeString(preset.topography));
+    setSymptoms(safeJoin(preset.symptoms));
+    setPreviousTreatments(safeString(preset.previousTreatments));
+    setComorbidities(safeString(preset.comorbidities));
+    setAllergies(safeString(preset.allergies));
   };
 
   // Reset form to 100% clean state
@@ -147,10 +180,36 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
     setError(null);
   };
 
+  // Manual save to localStorage history
+  const handleManualSaveHistory = () => {
+    if (!safeString(complaint).trim() && !safeString(patientName).trim()) {
+      setError('Informe ao menos o nome do paciente ou a queixa principal para salvar no histórico.');
+      return;
+    }
+    const topDisease = safeArray<any>(aiResult?.differentials)[0]?.disease || '';
+    saveConsultationToHistory({
+      patientName: safeString(patientName).trim() || 'Paciente não identificado',
+      fitzpatrick: fitzpatrick || 'III',
+      complaint: safeString(complaint),
+      evolutionTime: safeString(evolutionTime),
+      topography: safeString(topography),
+      symptoms: safeJoin(symptoms),
+      previousTreatments: safeString(previousTreatments),
+      comorbidities: safeString(comorbidities),
+      allergies: safeString(allergies),
+      photoDesc: safeString(photoDesc),
+      primaryHypothesis: safeString(topDisease),
+      differentialSummary: safeString(aiResult?.summary)
+    });
+    setError(null);
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 2500);
+  };
+
   // Submit to Gemini Copilot
   const handleRunCopilotAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!complaint.trim()) {
+    if (!safeString(complaint).trim()) {
       setError('Por favor, informe ao menos a Queixa Principal / HMA para processar a análise.');
       return;
     }
@@ -159,19 +218,37 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
     setError(null);
 
     try {
+      const normalizedSymptoms = safeJoin(symptoms);
       const data = await directDifferentialDiagnosis({
-        fitzpatrick,
-        complaint,
-        evolutionTime,
-        topography,
-        symptoms,
-        previousTreatments,
-        comorbidities,
-        allergies,
-        photoDesc
+        fitzpatrick: fitzpatrick || 'III',
+        complaint: safeString(complaint),
+        evolutionTime: safeString(evolutionTime),
+        topography: safeString(topography),
+        symptoms: normalizedSymptoms,
+        previousTreatments: safeString(previousTreatments),
+        comorbidities: safeString(comorbidities),
+        allergies: safeString(allergies),
+        photoDesc: safeString(photoDesc)
       });
 
       setAiResult(data as any);
+
+      // Persist basic consultation info safely in localStorage
+      const topDisease = safeArray<any>(data?.differentials)[0]?.disease || '';
+      saveConsultationToHistory({
+        patientName: safeString(patientName).trim() || 'Paciente não identificado',
+        fitzpatrick: fitzpatrick || 'III',
+        complaint: safeString(complaint),
+        evolutionTime: safeString(evolutionTime),
+        topography: safeString(topography),
+        symptoms: normalizedSymptoms,
+        previousTreatments: safeString(previousTreatments),
+        comorbidities: safeString(comorbidities),
+        allergies: safeString(allergies),
+        photoDesc: safeString(photoDesc),
+        primaryHypothesis: safeString(topDisease),
+        differentialSummary: safeString(data?.summary)
+      });
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Erro ao processar análise semiológica.');
@@ -182,25 +259,35 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
 
   const handleCopyAnalysis = () => {
     if (!aiResult) return;
+    const differentialsText = safeJoin(
+      safeArray<any>(aiResult.differentials).map((d, i) => `${i + 1}. [${safeString(d?.probability)}] ${safeString(d?.disease)} — ${safeString(d?.clinicalRationale)}`),
+      '\n'
+    );
+    const redFlagsText = safeJoin(
+      safeArray<any>(aiResult.redFlags).map(r => `• [${safeString(r?.severity)}] ${safeString(r?.warningTitle)}: ${safeString(r?.actionProtocol)}`),
+      '\n'
+    );
+    const workupText = safeJoin(aiResult.diagnosticWorkup, ' | ');
+
     const text = `
 CONSU-DERME — ANÁLISE CLÍNICA & COPILOTO DERMATOLÓGICO
-Paciente: ${patientName || 'Não identificado'} | Fototipo: Fitzpatrick ${fitzpatrick}
-Médico: ${doctorProfile.name || 'Médico Assistente'} (CRM: ${doctorProfile.crm}/${doctorProfile.uf})
+Paciente: ${safeString(patientName) || 'Não identificado'} | Fototipo: Fitzpatrick ${safeString(fitzpatrick, 'III')}
+Médico: ${safeString(doctorProfile?.name) || 'Médico Assistente'} (CRM: ${safeString(doctorProfile?.crm)}/${safeString(doctorProfile?.uf)})
 
 RESUMO SEMIOLÓGICO:
-${aiResult.summary || ''}
+${safeString(aiResult.summary)}
 
 DIAGNÓSTICOS DIFERENCIAIS (Por Probabilidade):
-${(aiResult.differentials || []).map((d, i) => `${i + 1}. [${d.probability}] ${d.disease} — ${d.clinicalRationale}`).join('\n')}
+${differentialsText}
 
 ALERTAS DE NEOPLASIAS / RED FLAGS:
-${(aiResult.redFlags || []).map(r => `• [${r.severity}] ${r.warningTitle}: ${r.actionProtocol}`).join('\n')}
+${redFlagsText}
 
 INVESTIGAÇÃO PROPAGATÓRIA:
-${(aiResult.diagnosticWorkup || []).join(' | ')}
+${workupText}
 
 CONDUTA INICIAL:
-${aiResult.initialManagement || ''}
+${safeString(aiResult.initialManagement)}
 
 *Nota: Suporte à decisão clínica. A responsabilidade do diagnóstico e ato médico é exclusiva do CRM cadastrado.*
     `.trim();
@@ -228,8 +315,18 @@ ${aiResult.initialManagement || ''}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
+              onClick={handleManualSaveHistory}
+              className="px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl border border-teal-500 flex items-center gap-1.5 transition"
+              title="Salvar atendimento atual no histórico local"
+            >
+              {savedNotice ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{savedNotice ? 'Salvo no Histórico!' : 'Salvar no Histórico'}</span>
+            </button>
+            <button
+              type="button"
               onClick={handleClearForm}
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-1.5 transition"
               title="Limpar formulário para novo paciente"
@@ -534,20 +631,20 @@ ${aiResult.initialManagement || ''}
                   </div>
 
                   <div className="space-y-2">
-                    {aiResult.redFlags?.map((flag, idx) => (
+                    {safeArray<any>(aiResult.redFlags).map((flag, idx) => (
                       <div key={idx} className="bg-white p-3 rounded-lg border border-red-200 text-xs">
                         <div className="flex items-center justify-between font-bold text-red-900">
-                          <span>{flag.warningTitle}</span>
+                          <span>{safeString(flag?.warningTitle)}</span>
                           <span className={`px-2 py-0.5 rounded text-[10px] ${
-                            flag.severity === 'Crítico' 
+                            flag?.severity === 'Crítico' 
                               ? 'bg-red-600 text-white' 
                               : 'bg-amber-100 text-amber-900'
                           }`}>
-                            {flag.severity}
+                            {safeString(flag?.severity, 'Atenção')}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-700 mt-1 font-medium leading-relaxed">
-                          <strong>Conduta Imediata Recomendada:</strong> {flag.actionProtocol}
+                          <strong>Conduta Imediata Recomendada:</strong> {safeString(flag?.actionProtocol)}
                         </p>
                       </div>
                     ))}
@@ -562,7 +659,7 @@ ${aiResult.initialManagement || ''}
                   <span>Resumo Semiológico</span>
                 </div>
                 <p className="text-xs text-slate-800 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
-                  {aiResult.summary}
+                  {safeString(aiResult.summary)}
                 </p>
               </div>
 
@@ -577,9 +674,10 @@ ${aiResult.initialManagement || ''}
                 </div>
 
                 <div className="space-y-2.5">
-                  {aiResult.differentials?.map((item, idx) => {
-                    const isHigh = item.probability?.toLowerCase().includes('alta');
-                    const isMedium = item.probability?.toLowerCase().includes('média') || item.probability?.toLowerCase().includes('media');
+                  {safeArray<any>(aiResult.differentials).map((item, idx) => {
+                    const prob = safeString(item?.probability, 'Investigar');
+                    const isHigh = prob.toLowerCase().includes('alta');
+                    const isMedium = prob.toLowerCase().includes('média') || prob.toLowerCase().includes('media');
                     return (
                       <div 
                         key={idx} 
@@ -593,7 +691,7 @@ ${aiResult.initialManagement || ''}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-extrabold text-slate-900 text-xs">
-                            {idx + 1}. {item.disease}
+                            {idx + 1}. {safeString(item?.disease)}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             isHigh 
@@ -602,15 +700,15 @@ ${aiResult.initialManagement || ''}
                               ? 'bg-blue-600 text-white' 
                               : 'bg-slate-200 text-slate-800'
                           }`}>
-                            Probabilidade {item.probability}
+                            Probabilidade {prob}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-700 leading-relaxed mt-1">
-                          <strong>Justificativa Clínica:</strong> {item.clinicalRationale}
+                          <strong>Justificativa Clínica:</strong> {safeString(item?.clinicalRationale)}
                         </p>
-                        {item.semiologyFeatures && (
+                        {item?.semiologyFeatures && (
                           <p className="text-[10px] text-slate-500 mt-1 italic">
-                            Achados cardinais: {item.semiologyFeatures}
+                            Achados cardinais: {safeString(item?.semiologyFeatures)}
                           </p>
                         )}
                       </div>
@@ -626,9 +724,9 @@ ${aiResult.initialManagement || ''}
                     Exames Complementares / Propedêutica Sugerida
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-1">
-                    {aiResult.diagnosticWorkup?.map((test, i) => (
+                    {safeArray<string>(aiResult.diagnosticWorkup).map((test, i) => (
                       <span key={i} className="bg-slate-100 text-slate-800 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-200">
-                        {test}
+                        {safeString(test)}
                       </span>
                     ))}
                   </div>
@@ -650,11 +748,11 @@ ${aiResult.initialManagement || ''}
                   type="button"
                   onClick={() => {
                     if (onNavigateToPrescription) {
-                      const topDisease = aiResult.differentials[0]?.disease || complaint;
+                      const topDisease = safeArray<any>(aiResult.differentials)[0]?.disease || safeString(complaint);
                       onNavigateToPrescription({
-                        indication: topDisease,
-                        fitzpatrick,
-                        complaint
+                        indication: safeString(topDisease),
+                        fitzpatrick: fitzpatrick || 'III',
+                        complaint: safeString(complaint)
                       });
                     }
                   }}
@@ -669,8 +767,8 @@ ${aiResult.initialManagement || ''}
                   onClick={() => {
                     if (onNavigateToPostCare) {
                       onNavigateToPostCare({
-                        procedure: aiResult.differentials[0]?.disease || 'Procedimento Clínico',
-                        patientName: patientName || 'Paciente'
+                        procedure: safeString(safeArray<any>(aiResult.differentials)[0]?.disease, 'Procedimento Clínico'),
+                        patientName: safeString(patientName, 'Paciente')
                       });
                     }
                   }}
@@ -701,6 +799,9 @@ ${aiResult.initialManagement || ''}
           )}
         </div>
       </div>
+
+      {/* Histórico de Atendimentos (localStorage) */}
+      <ConsultationHistory onSelectConsultation={handleLoadFromHistory} />
     </div>
   );
 };

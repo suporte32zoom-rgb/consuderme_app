@@ -29,6 +29,7 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 import { DoctorProfile, FinancialTransaction, TransactionType, PaymentMethod, PaymentStatus, FinancialCategory } from '../types';
+import { safeArray, safeNumber, safeStorageGet, safeStorageSet, safeString } from '../utils/safeHelpers';
 
 interface FinancialCashFlowModuleProps {
   doctorProfile: DoctorProfile;
@@ -68,19 +69,14 @@ const PAYMENT_METHOD_MAP: Record<PaymentMethod, { label: string; icon: React.Rea
 export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = ({ doctorProfile }) => {
   // Real storage: initialize 100% clean if empty
   const [transactions, setTransactions] = useState<FinancialTransaction[]>(() => {
-    const saved = localStorage.getItem('consuderme_financial_transactions');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
-    }
-    return [];
+    const loaded = safeStorageGet<FinancialTransaction[]>('consuderme_financial_transactions', []);
+    return safeArray<FinancialTransaction>(loaded);
   });
 
   // Active view tab inside financial module
   const [activeSubTab, setActiveSubTab] = useState<'flow' | 'dre' | 'new_transaction' | 'unit_margin'>('flow');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Filters
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
@@ -102,38 +98,40 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
 
   // Save to local storage
   useEffect(() => {
-    localStorage.setItem('consuderme_financial_transactions', JSON.stringify(transactions));
+    safeStorageSet('consuderme_financial_transactions', safeArray(transactions));
   }, [transactions]);
 
   // Handle transaction creation
   const handleCreateTransaction = (e: React.FormEvent) => {
     e.preventDefault();
-    const amountNum = parseFloat(newAmount.replace(',', '.'));
-    if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Por favor, informe um valor monetário válido.');
+    setFormError(null);
+    const amountNum = safeNumber(newAmount, 0);
+    if (amountNum <= 0) {
+      setFormError('Por favor, informe um valor monetário válido maior que zero.');
       return;
     }
 
-    const costNum = newCostOfGoods ? parseFloat(newCostOfGoods.replace(',', '.')) : 0;
+    const costNum = safeNumber(newCostOfGoods, 0);
+    const catMeta = CATEGORY_MAP[newCategory] || { label: 'Lançamento Financeiro', type: newType, color: 'text-slate-300' };
 
     const newTx: FinancialTransaction = {
       id: Date.now().toString(),
       type: newType,
-      description: newDesc.trim() || CATEGORY_MAP[newCategory].label,
+      description: safeString(newDesc).trim() || catMeta.label,
       category: newCategory,
-      categoryLabel: CATEGORY_MAP[newCategory].label,
+      categoryLabel: catMeta.label,
       amount: amountNum,
-      costOfGoods: isNaN(costNum) ? 0 : costNum,
-      date: newDate,
+      costOfGoods: costNum,
+      date: safeString(newDate) || new Date().toISOString().split('T')[0],
       paymentMethod: newPaymentMethod,
-      installments: newInstallments,
+      installments: safeNumber(newInstallments, 1),
       status: newStatus,
-      patientName: newPatientName.trim() || undefined,
-      notes: newNotes.trim() || undefined,
+      patientName: safeString(newPatientName).trim() || '',
+      notes: safeString(newNotes).trim() || '',
       createdAt: new Date().toISOString()
     };
 
-    setTransactions(prev => [newTx, ...prev]);
+    setTransactions(prev => [newTx, ...safeArray<FinancialTransaction>(prev)]);
 
     // Reset Form
     setNewDesc('');
@@ -146,14 +144,13 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
 
   // Delete transaction
   const handleDeleteTransaction = (id: string) => {
-    if (confirm('Deseja realmente excluir este lançamento financeiro?')) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
-    }
+    setTransactions(prev => safeArray<FinancialTransaction>(prev).filter(t => t.id !== id));
+    setPendingDeleteId(null);
   };
 
   // Toggle status
   const handleToggleStatus = (id: string) => {
-    setTransactions(prev => prev.map(t => {
+    setTransactions(prev => safeArray<FinancialTransaction>(prev).map(t => {
       if (t.id === id) {
         return {
           ...t,
@@ -164,38 +161,41 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
     }));
   };
 
+  const safeTxList = safeArray<FinancialTransaction>(transactions);
+
   // KPI Calculations
-  const totalIncomeReceived = transactions
-    .filter(t => t.type === 'income' && t.status === 'received')
-    .reduce((acc, curr) => acc + curr.amount, 0);
+  const totalIncomeReceived = safeTxList
+    .filter(t => t?.type === 'income' && t?.status === 'received')
+    .reduce((acc, curr) => acc + safeNumber(curr?.amount, 0), 0);
 
-  const totalIncomePending = transactions
-    .filter(t => t.type === 'income' && t.status === 'pending')
-    .reduce((acc, curr) => acc + curr.amount, 0);
+  const totalIncomePending = safeTxList
+    .filter(t => t?.type === 'income' && t?.status === 'pending')
+    .reduce((acc, curr) => acc + safeNumber(curr?.amount, 0), 0);
 
-  const totalExpensePaid = transactions
-    .filter(t => t.type === 'expense' && t.status === 'received')
-    .reduce((acc, curr) => acc + curr.amount, 0);
+  const totalExpensePaid = safeTxList
+    .filter(t => t?.type === 'expense' && t?.status === 'received')
+    .reduce((acc, curr) => acc + safeNumber(curr?.amount, 0), 0);
 
-  const totalExpensePending = transactions
-    .filter(t => t.type === 'expense' && t.status === 'pending')
-    .reduce((acc, curr) => acc + curr.amount, 0);
+  const totalExpensePending = safeTxList
+    .filter(t => t?.type === 'expense' && t?.status === 'pending')
+    .reduce((acc, curr) => acc + safeNumber(curr?.amount, 0), 0);
 
   const netBalance = totalIncomeReceived - totalExpensePaid;
   const netMargin = totalIncomeReceived > 0 ? (netBalance / totalIncomeReceived) * 100 : 0;
 
-  const totalProceduresCount = transactions.filter(t => t.type === 'income').length;
+  const totalProceduresCount = safeTxList.filter(t => t?.type === 'income').length;
   const averageTicket = totalProceduresCount > 0 ? totalIncomeReceived / totalProceduresCount : 0;
 
   // Filtered transactions
-  const filteredTransactions = transactions.filter(t => {
+  const filteredTransactions = safeTxList.filter(t => {
+    if (!t) return false;
     if (filterType !== 'all' && t.type !== filterType) return false;
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
     if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      const matchDesc = t.description.toLowerCase().includes(term);
-      const matchPatient = t.patientName?.toLowerCase().includes(term);
-      const matchCat = t.categoryLabel.toLowerCase().includes(term);
+      const term = safeString(searchTerm).toLowerCase();
+      const matchDesc = safeString(t.description).toLowerCase().includes(term);
+      const matchPatient = safeString(t.patientName).toLowerCase().includes(term);
+      const matchCat = safeString(t.categoryLabel).toLowerCase().includes(term);
       if (!matchDesc && !matchPatient && !matchCat) return false;
     }
     return true;
@@ -203,7 +203,7 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
 
   // Format Currency
   const formatBRL = (value: number) => {
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return safeNumber(value, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
   return (
@@ -549,13 +549,33 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
 
                           {/* Ações */}
                           <td className="py-3 px-4 text-center whitespace-nowrap">
-                            <button
-                              onClick={() => handleDeleteTransaction(tx.id)}
-                              className="text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition"
-                              title="Excluir Lançamento"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {pendingDeleteId === tx.id ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTransaction(tx.id)}
+                                  className="px-2 py-0.5 bg-rose-600 text-white text-[10px] font-bold rounded hover:bg-rose-700 transition"
+                                >
+                                  Excluir
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDeleteId(null)}
+                                  className="px-2 py-0.5 bg-slate-700 text-slate-200 text-[10px] rounded hover:bg-slate-600 transition"
+                                >
+                                  Não
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setPendingDeleteId(tx.id)}
+                                className="text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition"
+                                title="Excluir Lançamento"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -681,6 +701,12 @@ export const FinancialCashFlowModule: React.FC<FinancialCashFlowModuleProps> = (
           </div>
 
           <form onSubmit={handleCreateTransaction} className="space-y-4 text-xs">
+            {formError && (
+              <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             {/* Tipo de Transação */}
             <div>
               <label className="block text-slate-300 font-bold mb-1.5">Tipo de Lançamento</label>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { FitzpatrickType, DoctorProfile, PrescriptionResponse, MagistralFormula } from '../types';
 import { directPrescriptionGenerator } from '../services/geminiDirect';
+import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
 
 interface PrescriptionModuleProps {
   doctorProfile: DoctorProfile;
@@ -50,7 +51,7 @@ export const PrescriptionModule: React.FC<PrescriptionModuleProps> = ({
   // Generate Prescription via Gemini API
   const handleGeneratePrescription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!indication.trim()) {
+    if (!safeString(indication).trim()) {
       setError('Por favor, informe a indicação clínica ou patologia alvo.');
       return;
     }
@@ -60,12 +61,12 @@ export const PrescriptionModule: React.FC<PrescriptionModuleProps> = ({
 
     try {
       const data = await directPrescriptionGenerator({
-        indication,
-        fitzpatrick,
-        skinType,
-        vehiclePreference,
-        specialNotes,
-        doctorNotes
+        indication: safeString(indication),
+        fitzpatrick: fitzpatrick || 'III',
+        skinType: safeString(skinType, 'Mista'),
+        vehiclePreference: safeString(vehiclePreference),
+        specialNotes: safeString(specialNotes),
+        doctorNotes: safeString(doctorNotes)
       });
 
       setPrescriptionData(data as any);
@@ -82,34 +83,38 @@ export const PrescriptionModule: React.FC<PrescriptionModuleProps> = ({
 
     let text = `
 RECEITUÁRIO MÉDICO DERMATOLÓGICO
-${doctorProfile.clinicName || 'CONSULTÓRIO DE DERMATOLOGIA'}
-${doctorProfile.name || 'Dr(a). Dermatologista'} — CRM ${doctorProfile.crm || ''}/${doctorProfile.uf || ''}
-Paciente: ${patientName || '________________________'} | Data: ${new Date().toLocaleDateString('pt-BR')}
+${safeString(doctorProfile?.clinicName) || 'CONSULTÓRIO DE DERMATOLOGIA'}
+${safeString(doctorProfile?.name) || 'Dr(a). Dermatologista'} — CRM ${safeString(doctorProfile?.crm)}/${safeString(doctorProfile?.uf)}
+Paciente: ${safeString(patientName) || '________________________'} | Data: ${new Date().toLocaleDateString('pt-BR')}
 
 --- FÓRMULAS MAGISTRAIS (MANIPULAÇÃO) ---
 `;
 
-    (prescriptionData.magistralFormulas || []).forEach((f, i) => {
-      text += `\n${i + 1}. USO TÓPICO: ${f.title}\n`;
-      (f.actives || []).forEach(a => {
-        text += `   - ${a.name} ................... ${a.percentage}\n`;
+    safeArray<any>(prescriptionData.magistralFormulas).forEach((f, i) => {
+      text += `\n${i + 1}. USO TÓPICO: ${safeString(f?.title)}\n`;
+      safeArray<any>(f?.actives).forEach(a => {
+        text += `   - ${safeString(a?.name)} ................... ${safeString(a?.percentage)}\n`;
       });
-      text += `   - ${f.vehicle}\n`;
-      text += `   Posologia: ${f.posology}\n`;
-      text += `   Observações: ${f.warnings}\n`;
+      text += `   - ${safeString(f?.vehicle)}\n`;
+      text += `   Posologia: ${safeString(f?.posology)}\n`;
+      text += `   Observações: ${safeString(f?.warnings)}\n`;
     });
 
-    if (prescriptionData.industrialOptions && prescriptionData.industrialOptions.length > 0) {
+    const industrialList = safeArray<any>(prescriptionData.industrialOptions);
+    if (industrialList.length > 0) {
       text += `\n--- MEDICAMENTOS INDUSTRIAIS / DERMOCOSMÉTICOS ---\n`;
-      prescriptionData.industrialOptions.forEach((ind, i) => {
-        text += `${i + 1}. ${ind.name} (${ind.activeIngredient})\n   Posologia: ${ind.posology}\n`;
+      industrialList.forEach((ind, i) => {
+        text += `${i + 1}. ${safeString(ind?.name)} (${safeString(ind?.activeIngredient)})\n   Posologia: ${safeString(ind?.posology)}\n`;
       });
     }
 
+    const morningList = safeArray<string>(prescriptionData.generalSkincareRoutine?.morning);
+    const nightList = safeArray<string>(prescriptionData.generalSkincareRoutine?.night);
+
     text += `\n--- ROTINA DIÁRIA DE CUIDADOS (HOMECARE) ---\n`;
-    text += `MANHÃ:\n${(prescriptionData.generalSkincareRoutine?.morning || []).map(m => ` • ${m}`).join('\n')}\n`;
-    text += `NOITE:\n${(prescriptionData.generalSkincareRoutine?.night || []).map(n => ` • ${n}`).join('\n')}\n`;
-    text += `\nFOTOPROTEÇÃO: ${prescriptionData.photoprotectionStrategy || ''}\n`;
+    text += `MANHÃ:\n${safeJoin(morningList.map(m => ` • ${safeString(m)}`), '\n')}\n`;
+    text += `NOITE:\n${safeJoin(nightList.map(n => ` • ${safeString(n)}`), '\n')}\n`;
+    text += `\nFOTOPROTEÇÃO: ${safeString(prescriptionData.photoprotectionStrategy)}\n`;
 
     navigator.clipboard.writeText(text);
     setCopiedText(true);
@@ -120,11 +125,48 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
     const printWindow = window.open('', '_blank');
     if (!printWindow || !prescriptionData) return;
 
+    const formulasHtml = safeJoin(
+      safeArray<any>(prescriptionData.magistralFormulas).map((f, i) => {
+        const activesHtml = safeJoin(
+          safeArray<any>(f?.actives).map(a => `<div>• ${safeString(a?.name)} ................................... <strong>${safeString(a?.percentage)}</strong> <span style="color:#64748b; font-size:10px;">(${safeString(a?.rationale)})</span></div>`),
+          ''
+        );
+        return `
+          <div class="formula-card">
+            <div class="formula-title">${i + 1}. USO TÓPICO: ${safeString(f?.title)}</div>
+            <div class="actives-list">
+              ${activesHtml}
+              <div style="margin-top: 4px;">• ${safeString(f?.vehicle)}</div>
+            </div>
+            <div class="posology"><strong>Modo de Uso:</strong> ${safeString(f?.posology)}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;"><em>Atenção:</em> ${safeString(f?.warnings)}</div>
+          </div>
+        `;
+      }),
+      ''
+    );
+
+    const industrialOptions = safeArray<any>(prescriptionData.industrialOptions);
+    const industrialHtml = industrialOptions.length > 0
+      ? `
+        <div class="section-title">2. Produtos Industriais / Complementares</div>
+        ${safeJoin(
+          industrialOptions.map((ind, i) => `
+            <div style="margin-bottom: 8px; font-size: 12px;">
+              <strong>${i + 1}. ${safeString(ind?.name)}</strong> (${safeString(ind?.activeIngredient)})<br>
+              <span>Posologia: ${safeString(ind?.posology)}</span>
+            </div>
+          `),
+          ''
+        )}
+      `
+      : '';
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Receituário Médico — ${patientName || 'Paciente'}</title>
+          <title>Receituário Médico — ${safeString(patientName) || 'Paciente'}</title>
           <style>
             @page { size: A4; margin: 18mm; }
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; font-size: 13px; line-height: 1.5; }
@@ -144,9 +186,9 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
         <body>
           <div class="header">
             <div>
-              <div class="clinic-title">${doctorProfile.clinicName || 'CONSULTÓRIO DE DERMATOLOGIA'}</div>
-              <div class="doctor-sub">${doctorProfile.name || 'Médico(a) Assistente'} — CRM ${doctorProfile.crm || ''}/${doctorProfile.uf || ''} ${doctorProfile.rqe ? `• RQE ${doctorProfile.rqe}` : ''}</div>
-              <div class="doctor-sub">${doctorProfile.address || ''} • ${doctorProfile.phone || ''}</div>
+              <div class="clinic-title">${safeString(doctorProfile?.clinicName) || 'CONSULTÓRIO DE DERMATOLOGIA'}</div>
+              <div class="doctor-sub">${safeString(doctorProfile?.name) || 'Médico(a) Assistente'} — CRM ${safeString(doctorProfile?.crm)}/${safeString(doctorProfile?.uf)} ${doctorProfile?.rqe ? `• RQE ${doctorProfile.rqe}` : ''}</div>
+              <div class="doctor-sub">${safeString(doctorProfile?.address)} • ${safeString(doctorProfile?.phone)}</div>
             </div>
             <div style="text-align: right; font-size: 11px; color: #0d9488; font-weight: bold;">
               RECEITUÁRIO DERMATOLÓGICO<br>
@@ -155,36 +197,18 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
           </div>
 
           <div class="patient-box">
-            <strong>Paciente:</strong> ${patientName || '________________________________________'} &nbsp;&nbsp;|&nbsp;&nbsp; 
-            <strong>Data:</strong> ${new Date().toLocaleDateString('pt-BR')} &nbsp;&nbsp;|&nbsp;&nbsp;
-            <strong>Fototipo:</strong> Fitzpatrick ${fitzpatrick}
+            <strong>Paciente:</strong> ${safeString(patientName) || '________________________________________'} &nbsp;&nbsp;|&nbsp;&nbsp; 
+            <strong>Data:</strong> ${new Date().toLocaleDateString('pt-BR')} &nbsp;&nbsp;|&nbsp;&nbsp; 
+            <strong>Fototipo:</strong> Fitzpatrick ${safeString(fitzpatrick, 'III')}
           </div>
 
           <div class="section-title">1. Fórmulas Magistrais (Manipulação Farmacêutica)</div>
-          ${(prescriptionData.magistralFormulas || []).map((f, i) => `
-            <div class="formula-card">
-              <div class="formula-title">${i + 1}. USO TÓPICO: ${f.title}</div>
-              <div class="actives-list">
-                ${(f.actives || []).map(a => `<div>• ${a.name} ................................... <strong>${a.percentage}</strong> <span style="color:#64748b; font-size:10px;">(${a.rationale})</span></div>`).join('')}
-                <div style="margin-top: 4px;">• ${f.vehicle}</div>
-              </div>
-              <div class="posology"><strong>Modo de Uso:</strong> ${f.posology}</div>
-              <div style="font-size: 11px; color: #64748b; margin-top: 4px;"><em>Atenção:</em> ${f.warnings}</div>
-            </div>
-          `).join('')}
+          ${formulasHtml}
 
-          ${prescriptionData.industrialOptions && prescriptionData.industrialOptions.length > 0 ? `
-            <div class="section-title">2. Produtos Industriais / Complementares</div>
-            ${prescriptionData.industrialOptions.map((ind, i) => `
-              <div style="margin-bottom: 8px; font-size: 12px;">
-                <strong>${i + 1}. ${ind.name}</strong> (${ind.activeIngredient})<br>
-                <span>Posologia: ${ind.posology}</span>
-              </div>
-            `).join('')}
-          ` : ''}
+          ${industrialHtml}
 
           <div class="section-title">3. Fotoproteção & Recomendações</div>
-          <div style="font-size: 12px; margin-bottom: 10px;">${prescriptionData.photoprotectionStrategy || ''}</div>
+          <div style="font-size: 12px; margin-bottom: 10px;">${safeString(prescriptionData.photoprotectionStrategy)}</div>
 
           <div class="footer">
             <div style="font-size: 10px; color: #64748b;">
@@ -422,7 +446,7 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                   <span>Fórmulas Magistrais Indicadas</span>
                 </div>
 
-                {prescriptionData.magistralFormulas?.map((formula, idx) => (
+                {safeArray<any>(prescriptionData.magistralFormulas).map((formula, idx) => (
                   <div key={idx} className="bg-white rounded-xl border-2 border-emerald-200/80 p-4 shadow-sm space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
@@ -430,7 +454,7 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                           Fórmula Magistral {idx + 1}
                         </span>
                         <h4 className="text-sm font-extrabold text-slate-900 mt-1">
-                          {formula.title}
+                          {safeString(formula?.title)}
                         </h4>
                       </div>
                     </div>
@@ -441,18 +465,18 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                         Composição Galênica & Concentrações Ativas:
                       </div>
                       <div className="space-y-1.5 divide-y divide-slate-200/60 font-mono text-xs">
-                        {formula.actives?.map((act, i) => (
-                          <div key={i} className="pt-1.5 first:pt-0 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900">{act.name}</span>
-                              <span className="text-[10px] text-slate-500 font-sans">({act.rationale})</span>
+                        {safeArray<any>(formula?.actives).map((act, i) => (
+                          <div key={i} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-bold text-slate-900">{safeString(act?.name)}</span>
+                              <span className="text-[10px] text-slate-500 font-sans">({safeString(act?.rationale)})</span>
                             </div>
-                            <span className="font-extrabold text-emerald-700">{act.percentage}</span>
+                            <span className="font-extrabold text-emerald-700 shrink-0">{safeString(act?.percentage)}</span>
                           </div>
                         ))}
-                        <div className="pt-2 text-xs font-sans text-slate-700 font-semibold flex items-center justify-between">
+                        <div className="pt-2 text-xs font-sans text-slate-700 font-semibold flex flex-wrap items-center justify-between gap-2">
                           <span>Veículo Dermocosmético:</span>
-                          <span className="text-teal-800">{formula.vehicle}</span>
+                          <span className="text-teal-800">{safeString(formula?.vehicle)}</span>
                         </div>
                       </div>
                     </div>
@@ -460,10 +484,10 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                     {/* Posology & Warnings */}
                     <div className="space-y-1 text-xs">
                       <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 font-medium">
-                        <strong>Modo de Usar / Posologia:</strong> {formula.posology}
+                        <strong>Modo de Usar / Posologia:</strong> {safeString(formula?.posology)}
                       </div>
                       <div className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                        <strong>Avisos / Precauções:</strong> {formula.warnings}
+                        <strong>Avisos / Precauções:</strong> {safeString(formula?.warnings)}
                       </div>
                     </div>
                   </div>
@@ -478,7 +502,7 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                 </div>
 
                 <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed">
-                  <strong>Diretriz de Fotoproteção:</strong> {prescriptionData.photoprotectionStrategy}
+                  <strong>Diretriz de Fotoproteção:</strong> {safeString(prescriptionData.photoprotectionStrategy)}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -488,8 +512,8 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                       <span>Rotina Matinal</span>
                     </div>
                     <ul className="text-xs text-slate-700 space-y-1 list-disc list-inside">
-                      {prescriptionData.generalSkincareRoutine?.morning?.map((step, i) => (
-                        <li key={i}>{step}</li>
+                      {safeArray<string>(prescriptionData.generalSkincareRoutine?.morning).map((step, i) => (
+                        <li key={i}>{safeString(step)}</li>
                       ))}
                     </ul>
                   </div>
@@ -500,8 +524,8 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
                       <span>Rotina Noturna</span>
                     </div>
                     <ul className="text-xs text-slate-700 space-y-1 list-disc list-inside">
-                      {prescriptionData.generalSkincareRoutine?.night?.map((step, i) => (
-                        <li key={i}>{step}</li>
+                      {safeArray<string>(prescriptionData.generalSkincareRoutine?.night).map((step, i) => (
+                        <li key={i}>{safeString(step)}</li>
                       ))}
                     </ul>
                   </div>
@@ -509,17 +533,17 @@ Paciente: ${patientName || '________________________'} | Data: ${new Date().toLo
               </div>
 
               {/* Industrial Alternatives if available */}
-              {prescriptionData.industrialOptions && prescriptionData.industrialOptions.length > 0 && (
+              {safeArray<any>(prescriptionData.industrialOptions).length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                   <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     <Pill className="w-3.5 h-3.5 text-blue-600" />
                     <span>Opções Industrializadas de Referência</span>
                   </div>
                   <div className="space-y-2">
-                    {prescriptionData.industrialOptions.map((ind, i) => (
+                    {safeArray<any>(prescriptionData.industrialOptions).map((ind, i) => (
                       <div key={i} className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-200 text-xs">
-                        <div className="font-bold text-blue-950">{ind.name} <span className="text-[10px] font-normal text-slate-600">({ind.activeIngredient})</span></div>
-                        <div className="text-[11px] text-slate-700 mt-0.5">Posologia: {ind.posology}</div>
+                        <div className="font-bold text-blue-950">{safeString(ind?.name)} <span className="text-[10px] font-normal text-slate-600">({safeString(ind?.activeIngredient)})</span></div>
+                        <div className="text-[11px] text-slate-700 mt-0.5">Posologia: {safeString(ind?.posology)}</div>
                       </div>
                     ))}
                   </div>

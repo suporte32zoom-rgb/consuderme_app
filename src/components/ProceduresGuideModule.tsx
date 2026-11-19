@@ -19,6 +19,7 @@ import {
 import { INJECTABLE_ZONES, InjectableZoneReference } from '../data/clinicalTemplates';
 import { DoctorProfile, ProcedureGuideResponse, PostCareResponse } from '../types';
 import { directProcedureGuide, directPostCareGenerator } from '../services/geminiDirect';
+import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
 
 interface ProceduresGuideModuleProps {
   doctorProfile: DoctorProfile;
@@ -41,7 +42,7 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
   const [postCareData, setPostCareData] = useState<PostCareResponse | null>(null);
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
 
-  const currentZone = INJECTABLE_ZONES[selectedZoneIndex];
+  const currentZone = INJECTABLE_ZONES[selectedZoneIndex] || INJECTABLE_ZONES[0];
 
   // Request custom procedure protocol via direct Gemini 3.7 Flash REST
   const handleGenerateCustomGuide = async (e: React.FormEvent) => {
@@ -51,9 +52,9 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
 
     try {
       const data = await directProcedureGuide({
-        procedureType: customProcedureType,
-        targetArea,
-        patientProfile
+        procedureType: safeString(customProcedureType, 'Toxina Botulínica'),
+        targetArea: safeString(targetArea, 'Face'),
+        patientProfile: safeString(patientProfile, 'Adulto padrão')
       });
 
       setGuideData(data as any);
@@ -70,10 +71,10 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
     setLoadingPostCare(true);
     try {
       const data = await directPostCareGenerator({
-        procedure: customProcedureType,
-        patientName: postCarePatient || 'Paciente',
-        doctorName: doctorProfile.name || 'Dr(a). Dermatologista',
-        clinicPhone: doctorProfile.phone || '(11) 99999-9999',
+        procedure: safeString(customProcedureType, 'Procedimento Dermatológico'),
+        patientName: safeString(postCarePatient, 'Paciente'),
+        doctorName: safeString(doctorProfile?.name, 'Dr(a). Dermatologista'),
+        clinicPhone: safeString(doctorProfile?.phone, '(11) 99999-9999'),
         specificNotes: 'Evitar manipular a área tratada nas primeiras 24 horas.'
       });
 
@@ -87,7 +88,7 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
 
   const handleCopyWhatsapp = () => {
     if (!postCareData) return;
-    navigator.clipboard.writeText(postCareData.whatsappMessage);
+    navigator.clipboard.writeText(safeString(postCareData.whatsappMessage));
     setCopiedWhatsapp(true);
     setTimeout(() => setCopiedWhatsapp(false), 2500);
   };
@@ -285,12 +286,12 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
           {/* AI Guide Output Result */}
           {guideData && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4 animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
                 <h4 className="text-sm font-extrabold text-slate-900">
-                  {guideData.procedureName}
+                  {safeString(guideData.procedureName)}
                 </h4>
                 <span className="text-xs text-purple-700 font-bold bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-200">
-                  {guideData.anatomicalPlanes}
+                  {safeString(guideData.anatomicalPlanes)}
                 </span>
               </div>
 
@@ -300,16 +301,16 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
                   Pontos e Dosagens Recomendadas:
                 </div>
                 <div className="space-y-2">
-                  {guideData.dosageAndPoints?.map((dp, i) => (
+                  {safeArray<any>(guideData.dosageAndPoints).map((dp, i) => (
                     <div key={i} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-                      <div className="flex items-center justify-between font-bold text-slate-900">
-                        <span>{dp.area}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-slate-900">
+                        <span>{safeString(dp?.area)}</span>
                         <span className="text-purple-700 bg-purple-100 px-2 py-0.5 rounded text-[11px]">
-                          {dp.recommendedUnitsOrVolume}
+                          {safeString(dp?.recommendedUnitsOrVolume)}
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-600 mt-1">
-                        <strong>Técnica:</strong> {dp.injectionTechnique} • <em>Alvo: {dp.targetMuscleOrStructure}</em>
+                        <strong>Técnica:</strong> {safeString(dp?.injectionTechnique)} • <em>Alvo: {safeString(dp?.targetMuscleOrStructure)}</em>
                       </div>
                     </div>
                   ))}
@@ -322,16 +323,16 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
                   <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
                   <span>Vasos e Zonas de Risco Vascular:</span>
                 </div>
-                {guideData.dangerZonesAndVessels?.map((dz, i) => (
+                {safeArray<any>(guideData.dangerZonesAndVessels).map((dz, i) => (
                   <div key={i} className="text-[11px] text-red-800">
-                    <strong>{dz.vessel} ({dz.dangerLocation}):</strong> {dz.safetyRule}
+                    <strong>{safeString(dz?.vessel)} ({safeString(dz?.dangerLocation)}):</strong> {safeString(dz?.safetyRule)}
                   </div>
                 ))}
               </div>
 
               {/* Potential complications */}
               <div className="text-xs text-slate-600">
-                <span className="font-bold text-slate-800">Possíveis intercorrências:</span> {(guideData.potentialComplications || []).join(', ')}
+                <span className="font-bold text-slate-800">Possíveis intercorrências:</span> {safeJoin(guideData.potentialComplications) || 'Nenhuma intercorrência listada'}
               </div>
 
               {/* Post Care Quick Trigger */}
@@ -359,7 +360,7 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
           {/* Post Care Output Card */}
           {postCareData && (
             <div className="bg-white rounded-xl border-2 border-emerald-300 p-5 shadow-sm space-y-3 animate-fadeIn">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs uppercase tracking-wider">
                   <Send className="w-4 h-4 text-emerald-600" />
                   <span>Orientações Pós-Procedimento para Envio</span>
@@ -367,7 +368,7 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
 
                 <button
                   onClick={handleCopyWhatsapp}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition"
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition shrink-0"
                 >
                   {copiedWhatsapp ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedWhatsapp ? 'Copiado!' : 'Copiar p/ WhatsApp'}</span>
@@ -376,15 +377,15 @@ export const ProceduresGuideModule: React.FC<ProceduresGuideModuleProps> = ({ do
 
               {/* WhatsApp Message Preview */}
               <div className="bg-emerald-50/50 p-4 rounded-lg border border-emerald-200 font-sans text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">
-                {postCareData.whatsappMessage}
+                {safeString(postCareData.whatsappMessage)}
               </div>
 
               {/* Warning Signs */}
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
                 <strong>Sinais de Alerta para Contato Imediato:</strong>
                 <ul className="list-disc list-inside mt-1 text-[11px]">
-                  {postCareData.urgentWarningSigns?.map((w, i) => (
-                    <li key={i}>{w}</li>
+                  {safeArray<string>(postCareData.urgentWarningSigns).map((w, i) => (
+                    <li key={i}>{safeString(w)}</li>
                   ))}
                 </ul>
               </div>

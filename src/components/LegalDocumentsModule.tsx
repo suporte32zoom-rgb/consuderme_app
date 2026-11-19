@@ -17,13 +17,15 @@ import {
 } from 'lucide-react';
 import { LEGAL_DOCUMENTS, LegalDocTemplate } from '../data/legalDocuments';
 import { DoctorProfile } from '../types';
+import { safeArray, safeString } from '../utils/safeHelpers';
 
 interface LegalDocumentsModuleProps {
   doctorProfile: DoctorProfile;
 }
 
 export const LegalDocumentsModule: React.FC<LegalDocumentsModuleProps> = ({ doctorProfile }) => {
-  const [selectedDocId, setSelectedDocId] = useState<string>(LEGAL_DOCUMENTS[0].id);
+  const safeDocs = safeArray<LegalDocTemplate>(LEGAL_DOCUMENTS);
+  const [selectedDocId, setSelectedDocId] = useState<string>(safeDocs[0]?.id || '');
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [copiedHtml, setCopiedHtml] = useState<boolean>(false);
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -33,26 +35,26 @@ export const LegalDocumentsModule: React.FC<LegalDocumentsModuleProps> = ({ doct
   const [patientCpf, setPatientCpf] = useState<string>('');
   const [patientBirth, setPatientBirth] = useState<string>('');
 
-  const selectedDoc = LEGAL_DOCUMENTS.find(d => d.id === selectedDocId) || LEGAL_DOCUMENTS[0];
+  const selectedDoc = safeDocs.find(d => d.id === selectedDocId) || safeDocs[0];
 
-  const filteredDocs = LEGAL_DOCUMENTS.filter(doc => {
+  const filteredDocs = safeDocs.filter(doc => {
     if (filterCategory === 'all') return true;
     return doc.category === filterCategory;
   });
 
   // Dynamically replace placeholders with Doctor and Patient data
-  const getProcessedContent = (rawContent: string) => {
-    let text = rawContent;
-    text = text.replace(/\[NOME DO MÉDICO\]/g, doctorProfile.name || 'Dr(a). Dermatologista');
-    text = text.replace(/\[CRM\]/g, `${doctorProfile.crm || '00000'}/${doctorProfile.uf || 'UF'}${doctorProfile.rqe ? ` • RQE ${doctorProfile.rqe}` : ''}`);
-    text = text.replace(/\[NOME DA CLÍNICA\]/g, doctorProfile.clinicName || 'Consultório de Dermatologia');
-    text = text.replace(/\[NOME DO PACIENTE\]/g, patientName || '________________________________________');
-    text = text.replace(/\[CPF DO PACIENTE\]/g, patientCpf || '___.___.___-__');
-    text = text.replace(/\[DATA DE NASCIMENTO\]/g, patientBirth || '__/__/____');
+  const getProcessedContent = (rawContent?: string) => {
+    let text = safeString(rawContent);
+    text = text.replace(/\[NOME DO MÉDICO\]/g, safeString(doctorProfile?.name, 'Dr(a). Dermatologista'));
+    text = text.replace(/\[CRM\]/g, `${safeString(doctorProfile?.crm, '00000')}/${safeString(doctorProfile?.uf, 'UF')}${doctorProfile?.rqe ? ` • RQE ${doctorProfile.rqe}` : ''}`);
+    text = text.replace(/\[NOME DA CLÍNICA\]/g, safeString(doctorProfile?.clinicName, 'Consultório de Dermatologia'));
+    text = text.replace(/\[NOME DO PACIENTE\]/g, safeString(patientName, '________________________________________'));
+    text = text.replace(/\[CPF DO PACIENTE\]/g, safeString(patientCpf, '___.___.___-__'));
+    text = text.replace(/\[DATA DE NASCIMENTO\]/g, safeString(patientBirth, '__/__/____'));
     return text;
   };
 
-  const currentContent = getProcessedContent(selectedDoc.content);
+  const currentContent = getProcessedContent(selectedDoc?.content);
 
   const handleCopyText = () => {
     navigator.clipboard.writeText(currentContent);
@@ -209,7 +211,7 @@ ${currentContent}
 
           {/* Document list */}
           <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 shadow-sm max-h-[550px] overflow-y-auto">
-            {filteredDocs.map((doc) => {
+            {safeArray<LegalDocTemplate>(filteredDocs).map((doc) => {
               const isSelected = doc.id === selectedDocId;
               return (
                 <div

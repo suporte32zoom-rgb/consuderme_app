@@ -19,6 +19,7 @@ import {
   Building
 } from 'lucide-react';
 import { DoctorProfile, ClinicalFollowUp, ProcedureCostItem } from '../types';
+import { safeArray, safeNumber, safeString } from '../utils/safeHelpers';
 
 interface ClinicManagementModuleProps {
   doctorProfile: DoctorProfile;
@@ -95,13 +96,19 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
 
   // Recalculate Procedure Cost
   const handleUpdateCost = (id: string, updates: Partial<ProcedureCostItem>) => {
-    setCostItems(prev => prev.map(item => {
+    setCostItems(prev => safeArray<ProcedureCostItem>(prev).map(item => {
       if (item.id === id) {
         const merged = { ...item, ...updates };
-        const productUnitCost = (merged.vialCost / merged.totalUnitsOrMl) * merged.usedUnitsOrMl;
-        const totalDirectCost = productUnitCost + merged.suppliesCost;
+        const safeTotal = safeNumber(merged.totalUnitsOrMl, 1) || 1;
+        const safeUsed = safeNumber(merged.usedUnitsOrMl, 0);
+        const safeVial = safeNumber(merged.vialCost, 0);
+        const safeSupplies = safeNumber(merged.suppliesCost, 0);
+        const safeMargin = safeNumber(merged.desiredMarginPercent, 50);
+
+        const productUnitCost = (safeVial / safeTotal) * safeUsed;
+        const totalDirectCost = productUnitCost + safeSupplies;
         // Price = Cost / (1 - Margin/100)
-        const marginMultiplier = 1 - (merged.desiredMarginPercent / 100);
+        const marginMultiplier = 1 - (safeMargin / 100);
         const calculatedPrice = marginMultiplier > 0 ? Math.round(totalDirectCost / marginMultiplier) : totalDirectCost * 2;
         return { ...merged, suggestedPrice: calculatedPrice };
       }
@@ -112,12 +119,12 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
   // Add Follow up session
   const handleAddFollowUp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPatientFollowUp.trim()) return;
+    if (!safeString(newPatientFollowUp).trim()) return;
 
     const newRecord: ClinicalFollowUp = {
       id: Date.now().toString(),
-      patientName: newPatientFollowUp,
-      diagnosis: newDiagnosisFollowUp,
+      patientName: safeString(newPatientFollowUp).trim(),
+      diagnosis: safeString(newDiagnosisFollowUp, 'Acompanhamento Dermatológico'),
       startDate: new Date().toLocaleDateString('pt-BR'),
       targetArea: 'Face',
       treatmentPlan: 'Protocolo Farmacológico + Homecare',
@@ -125,14 +132,14 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
         {
           date: new Date().toLocaleDateString('pt-BR'),
           sessionNumber: 1,
-          notes: newNotesFollowUp,
-          improvementScore: newScoreFollowUp,
+          notes: safeString(newNotesFollowUp),
+          improvementScore: safeNumber(newScoreFollowUp, 0),
           nextReturnDays: 30
         }
       ]
     };
 
-    setFollowUps([newRecord, ...followUps]);
+    setFollowUps([newRecord, ...safeArray<ClinicalFollowUp>(followUps)]);
     setNewPatientFollowUp('');
     setNewNotesFollowUp('');
   };
@@ -547,11 +554,11 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
               {docType === 'atestado' && (
                 <div className="space-y-4 text-xs text-slate-800 leading-relaxed bg-slate-50 p-5 rounded-lg border border-slate-200">
                   <p>
-                    Atesto para os devidos fins que o(a) Sr(a). <strong>{docPatientName || '________________________________________'}</strong>, 
-                    ${docPatientCpf ? `inscrito(a) no CPF nº ${docPatientCpf}, ` : ''}esteve sob cuidados médicos dermatológicos nesta data, necessitando de 
-                    <strong>{docDaysOff} dia(s)</strong> de afastamento de suas atividades.
+                    Atesto para os devidos fins que o(a) Sr(a). <strong>{safeString(docPatientName) || '________________________________________'}</strong>,{' '}
+                    {docPatientCpf ? `inscrito(a) no CPF nº ${docPatientCpf}, ` : ''}esteve sob cuidados médicos dermatológicos nesta data, necessitando de{' '}
+                    <strong>{safeString(docDaysOff, '1')} dia(s)</strong> de afastamento de suas atividades.
                   </p>
-                  <p><strong>CID-10:</strong> {docCid}</p>
+                  <p><strong>CID-10:</strong> {safeString(docCid)}</p>
                   {docContentText && <p><strong>Observações:</strong> {docContentText}</p>}
                 </div>
               )}
@@ -613,11 +620,12 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {costItems.map((item) => {
-                const costPerUnit = (item.vialCost / item.totalUnitsOrMl) * item.usedUnitsOrMl;
-                const totalDirect = costPerUnit + item.suppliesCost;
-                const grossProfit = item.suggestedPrice - totalDirect;
-                const realMargin = item.suggestedPrice > 0 ? ((grossProfit / item.suggestedPrice) * 100).toFixed(1) : 0;
+              {safeArray<ProcedureCostItem>(costItems).map((item) => {
+                const safeTotal = safeNumber(item.totalUnitsOrMl, 1) || 1;
+                const costPerUnit = (safeNumber(item.vialCost, 0) / safeTotal) * safeNumber(item.usedUnitsOrMl, 0);
+                const totalDirect = costPerUnit + safeNumber(item.suppliesCost, 0);
+                const grossProfit = safeNumber(item.suggestedPrice, 0) - totalDirect;
+                const realMargin = safeNumber(item.suggestedPrice, 0) > 0 ? ((grossProfit / safeNumber(item.suggestedPrice, 1)) * 100).toFixed(1) : '0';
 
                 return (
                   <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
@@ -782,24 +790,27 @@ export const ClinicManagementModule: React.FC<ClinicManagementModuleProps> = ({ 
                 Histórico de Acompanhamentos Clínicos
               </h4>
 
-              {followUps.length > 0 ? (
+              {safeArray<ClinicalFollowUp>(followUps).length > 0 ? (
                 <div className="space-y-3">
-                  {followUps.map((rec) => (
-                    <div key={rec.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="font-extrabold text-slate-900 text-sm">{rec.patientName}</span>
-                          <span className="text-xs text-slate-500 block">{rec.diagnosis} • Início: {rec.startDate}</span>
+                  {safeArray<ClinicalFollowUp>(followUps).map((rec) => {
+                    const latestSession = safeArray<any>(rec.sessions)[0];
+                    return (
+                      <div key={rec.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-extrabold text-slate-900 text-sm">{safeString(rec.patientName)}</span>
+                            <span className="text-xs text-slate-500 block">{safeString(rec.diagnosis)} • Início: {safeString(rec.startDate)}</span>
+                          </div>
+                          <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full">
+                            Melhora: {safeNumber(latestSession?.improvementScore, 0)}%
+                          </span>
                         </div>
-                        <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full">
-                          Melhora: {rec.sessions[0]?.improvementScore}%
-                        </span>
+                        <p className="text-xs text-slate-700 bg-white p-3 rounded-lg border border-slate-200">
+                          {safeString(latestSession?.notes)}
+                        </p>
                       </div>
-                      <p className="text-xs text-slate-700 bg-white p-3 rounded-lg border border-slate-200">
-                        {rec.sessions[0]?.notes}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-10 text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">

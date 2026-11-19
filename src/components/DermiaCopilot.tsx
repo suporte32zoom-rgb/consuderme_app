@@ -31,7 +31,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { DoctorProfile, NavigationTab } from '../types';
-import { directDermiaChat, getGeminiApiKey, setGeminiApiKey } from '../services/geminiDirect';
+import { directDermiaChat } from '../services/geminiDirect';
+import { safeArray, safeString } from '../utils/safeHelpers';
 
 // Declare SpeechRecognition interfaces for TypeScript
 declare global {
@@ -163,8 +164,24 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
   // Load available AI Providers directly without server dependency
   useEffect(() => {
     setProviders([
-      { id: 'gemini', name: 'Google Gemini 3.7 Flash (Direto REST)', active: true, free: true },
-      { id: 'clinical_engine', name: 'Motor Clínico ConsuDerme (Offline)', active: true, free: true }
+      {
+        id: 'gemini',
+        name: 'Google Gemini 3.7 Flash (Direto REST)',
+        model: 'gemini-3.7-flash',
+        configured: true,
+        isFreeTier: true,
+        badge: 'Direto REST',
+        description: 'Chamadas REST diretas ao Gemini 3.7 Flash no navegador.'
+      },
+      {
+        id: 'clinical_engine',
+        name: 'Motor Clínico ConsuDerme (Offline)',
+        model: 'consuderme-local-v1',
+        configured: true,
+        isFreeTier: true,
+        badge: 'Offline',
+        description: 'Base de conhecimento clínica local para operação imediata.'
+      }
     ]);
   }, []);
 
@@ -357,7 +374,7 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
     try {
       const data = await directDermiaChat({
         message: messageText,
-        conversationHistory: messages.slice(-6).map(m => ({ sender: m.sender, text: m.text })),
+        conversationHistory: safeArray<Message>(messages).slice(-6).map(m => ({ sender: m.sender, text: safeString(m.text) })),
         doctorProfile
       });
 
@@ -781,7 +798,7 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
 
           {/* Messages Area */}
           <div className="flex-1 p-4 overflow-y-auto space-y-4 text-xs bg-slate-50/50">
-            {(messages || []).map((msg) => (
+            {safeArray<Message>(messages).map((msg) => (
               <div
                 key={msg.id}
                 className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
@@ -932,7 +949,7 @@ export const DermiaCopilot: React.FC<DermiaCopilotProps> = ({
               </span>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1 text-[11px] no-scrollbar">
-              {QUICK_PROMPTS.map((qp, idx) => (
+              {safeArray<(typeof QUICK_PROMPTS)[number]>(QUICK_PROMPTS).map((qp, idx) => (
                 <button
                   key={idx}
                   onClick={() => handleSendMessage(qp.query, qp.targetTab)}
