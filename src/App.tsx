@@ -14,11 +14,13 @@ import { ProceduresGuideModule } from './components/ProceduresGuideModule';
 import { ClinicManagementModule } from './components/ClinicManagementModule';
 import { FinancialCashFlowModule } from './components/FinancialCashFlowModule';
 import { DermiaCopilot } from './components/DermiaCopilot';
+import { PatientDatabaseModule } from './components/PatientDatabaseModule';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { usePWA } from './hooks/usePWA';
-import { DoctorProfile, NavigationTab, FitzpatrickType } from './types';
+import { DoctorProfile, NavigationTab, FitzpatrickType, PatientRecord } from './types';
 import { safeStorageGet, safeStorageSet, safeString } from './utils/safeHelpers';
 import { ConsultationHistoryEntry } from './utils/consultationStorage';
+import { markPatientLastVisit } from './utils/patientStorage';
 
 // Default clean doctor profile (ready for real medical data entry)
 const DEFAULT_DOCTOR_PROFILE: DoctorProfile = {
@@ -57,6 +59,7 @@ export default function App() {
 
   const [showDoctorModal, setShowDoctorModal] = useState(false);
   const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<ConsultationHistoryEntry | null>(null);
+  const [selectedPatientForConsultation, setSelectedPatientForConsultation] = useState<PatientRecord | null>(null);
   const [prescriptionInitialData, setPrescriptionInitialData] = useState<{
     indication?: string;
     fitzpatrick?: FitzpatrickType;
@@ -71,7 +74,7 @@ export default function App() {
       if (tabParam) {
         if (tabParam === 'dermia') {
           setIsDermiaOpen(true);
-        } else if (['dashboard', 'clinical', 'prescriptions', 'procedures', 'financial', 'management', 'legal'].includes(tabParam)) {
+        } else if (['dashboard', 'clinical', 'patients', 'prescriptions', 'procedures', 'financial', 'management', 'legal'].includes(tabParam)) {
           setActiveTab(tabParam as NavigationTab);
         }
       }
@@ -101,6 +104,12 @@ export default function App() {
 
   const handleSelectConsultationFromHistory = (entry: ConsultationHistoryEntry) => {
     setSelectedHistoryEntry(entry);
+    setActiveTab('clinical');
+  };
+
+  const handleStartConsultationWithPatient = (patient: PatientRecord) => {
+    setSelectedPatientForConsultation(patient);
+    markPatientLastVisit(patient.id);
     setActiveTab('clinical');
   };
 
@@ -149,8 +158,17 @@ export default function App() {
           <ClinicalConsultationModule
             doctorProfile={doctorProfile}
             initialConsultation={selectedHistoryEntry}
+            initialPatient={selectedPatientForConsultation}
+            onNavigateToPatients={() => setActiveTab('patients')}
             onNavigateToPrescription={handleNavigateToPrescription}
             onNavigateToPostCare={handleNavigateToPostCare}
+          />
+        )}
+
+        {activeTab === 'patients' && (
+          <PatientDatabaseModule
+            doctorProfile={doctorProfile}
+            onStartConsultationWithPatient={handleStartConsultationWithPatient}
           />
         )}
 

@@ -1,6 +1,6 @@
 export type FitzpatrickType = 'I' | 'II' | 'III' | 'IV' | 'V' | 'VI';
 
-export type NavigationTab = 'dashboard' | 'clinical' | 'prescriptions' | 'procedures' | 'management' | 'financial' | 'legal';
+export type NavigationTab = 'dashboard' | 'clinical' | 'patients' | 'prescriptions' | 'procedures' | 'management' | 'financial' | 'legal';
 
 export interface DoctorProfile {
   name: string;
@@ -154,6 +154,23 @@ export interface PatientConsultation {
   prescriptions?: MagistralFormula[];
   doctorNotes?: string;
   createdAt: string;
+}
+
+export interface PatientRecord {
+  id: string;
+  fullName: string;
+  phone: string;
+  email?: string;
+  birthDate?: string;
+  cpf?: string;
+  fitzpatrick: FitzpatrickType;
+  allergies: string;
+  comorbidities: string;
+  previousTreatments: string;
+  medicalHistoryNotes: string;
+  lastVisitAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ClinicalFollowUp {

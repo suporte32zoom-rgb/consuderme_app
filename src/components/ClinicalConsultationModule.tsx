@@ -23,18 +23,23 @@ import {
   MicOff,
   Volume2,
   VolumeX,
-  Save
+  Save,
+  Users,
+  UserPlus
 } from 'lucide-react';
 import { FITZPATRICK_SCALE, CLINICAL_PRESETS, FitzpatrickInfo } from '../data/clinicalTemplates';
-import { FitzpatrickType, DifferentialDiagnosisResponse, DoctorProfile, PatientConsultation } from '../types';
+import { FitzpatrickType, DifferentialDiagnosisResponse, DoctorProfile, PatientConsultation, PatientRecord } from '../types';
 import { directDifferentialDiagnosis } from '../services/geminiDirect';
 import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
 import { ConsultationHistoryEntry, saveConsultationToHistory } from '../utils/consultationStorage';
+import { loadPatients, markPatientLastVisit, savePatientRecord } from '../utils/patientStorage';
 import { ConsultationHistory } from './ConsultationHistory';
 
 interface ClinicalConsultationModuleProps {
   doctorProfile: DoctorProfile;
   initialConsultation?: ConsultationHistoryEntry | null;
+  initialPatient?: PatientRecord | null;
+  onNavigateToPatients?: () => void;
   onNavigateToPrescription?: (patientData: { indication: string; fitzpatrick: FitzpatrickType; complaint: string }) => void;
   onNavigateToPostCare?: (patientData: { procedure: string; patientName: string }) => void;
 }
@@ -42,6 +47,8 @@ interface ClinicalConsultationModuleProps {
 export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProps> = ({
   doctorProfile,
   initialConsultation,
+  initialPatient,
+  onNavigateToPatients,
   onNavigateToPrescription,
   onNavigateToPostCare
 }) => {
@@ -66,6 +73,30 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
   const [isSpeakingAnalysis, setIsSpeakingAnalysis] = useState(false);
 
   const [savedNotice, setSavedNotice] = useState(false);
+  const [registeredPatients, setRegisteredPatients] = useState<PatientRecord[]>(() => loadPatients());
+  const [selectedPatientRecord, setSelectedPatientRecord] = useState<PatientRecord | null>(null);
+  const [patientQuickSaved, setPatientQuickSaved] = useState(false);
+
+  // Sync registered patients directory
+  useEffect(() => {
+    const syncPatients = () => setRegisteredPatients(loadPatients());
+    window.addEventListener('consuderme:patients-updated', syncPatients);
+    window.addEventListener('storage', syncPatients);
+    return () => {
+      window.removeEventListener('consuderme:patients-updated', syncPatients);
+      window.removeEventListener('storage', syncPatients);
+    };
+  }, []);
+
+  const handleApplyPatientRecord = (patient: PatientRecord) => {
+    setSelectedPatientRecord(patient);
+    setPatientName(safeString(patient.fullName));
+    setFitzpatrick(patient.fitzpatrick || 'III');
+    setAllergies(safeString(patient.allergies));
+    setComorbidities(safeString(patient.comorbidities));
+    setPreviousTreatments(safeString(patient.previousTreatments));
+    setError(null);
+  };
 
   // Load initial consultation if passed from Dashboard
   useEffect(() => {
@@ -74,7 +105,15 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
     }
   }, [initialConsultation]);
 
+  // Load initial patient if passed from PatientDatabaseModule
+  useEffect(() => {
+    if (initialPatient) {
+      handleApplyPatientRecord(initialPatient);
+    }
+  }, [initialPatient]);
+
   const handleLoadFromHistory = (entry: ConsultationHistoryEntry) => {
+    setSelectedPatientRecord(null);
     setPatientName(safeString(entry.patientName) === 'Paciente não identificado' ? '' : safeString(entry.patientName));
     setFitzpatrick(entry.fitzpatrick || 'III');
     setComplaint(safeString(entry.complaint));
@@ -166,6 +205,7 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
 
   // Reset form to 100% clean state
   const handleClearForm = () => {
+    setSelectedPatientRecord(null);
     setPatientName('');
     setFitzpatrick('III');
     setComplaint('');
@@ -178,6 +218,34 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
     setPhotoDesc('');
     setAiResult(null);
     setError(null);
+  };
+
+  // Save current patient info quickly into Patient Database
+  const handleQuickSavePatient = () => {
+    const cleanName = safeString(patientName).trim();
+    if (!cleanName) {
+      setError('Informe o nome do paciente antes de salvar na Base de Pacientes.');
+      return;
+    }
+    const { saved } = savePatientRecord({
+      id: selectedPatientRecord?.id,
+      fullName: cleanName,
+      phone: safeString(selectedPatientRecord?.phone),
+      email: safeString(selectedPatientRecord?.email),
+      birthDate: safeString(selectedPatientRecord?.birthDate),
+      cpf: safeString(selectedPatientRecord?.cpf),
+      fitzpatrick: fitzpatrick || 'III',
+      allergies: safeString(allergies),
+      comorbidities: safeString(comorbidities),
+      previousTreatments: safeString(previousTreatments),
+      medicalHistoryNotes: safeString(selectedPatientRecord?.medicalHistoryNotes)
+    });
+    if (saved) {
+      setSelectedPatientRecord(saved);
+      setError(null);
+      setPatientQuickSaved(true);
+      setTimeout(() => setPatientQuickSaved(false), 2500);
+    }
   };
 
   // Manual save to localStorage history
@@ -249,6 +317,9 @@ export const ClinicalConsultationModule: React.FC<ClinicalConsultationModuleProp
         primaryHypothesis: safeString(topDisease),
         differentialSummary: safeString(data?.summary)
       });
+      if (selectedPatientRecord?.id) {
+        markPatientLastVisit(selectedPatientRecord.id);
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Erro ao processar análise semiológica.');
@@ -376,6 +447,92 @@ ${safeString(aiResult.initialManagement)}
               <span className="text-[11px] font-semibold text-slate-400">
                 100% Confidencial
               </span>
+            </div>
+
+            {/* Quick Patient Retrieval from PatientDatabaseModule */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Recuperação Rápida da Base de Pacientes</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleQuickSavePatient}
+                    className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                  >
+                    {patientQuickSaved ? <Check className="w-3 h-3" /> : <UserPlus className="w-3 h-3" />}
+                    <span>{patientQuickSaved ? 'Ficha salva na Base!' : selectedPatientRecord ? 'Atualizar na Base' : 'Salvar na Base'}</span>
+                  </button>
+                  {onNavigateToPatients && (
+                    <>
+                      <span className="text-slate-300" aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        onClick={onNavigateToPatients}
+                        className="text-[11px] font-semibold text-slate-600 hover:text-slate-900"
+                      >
+                        Gerenciar Base
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <select
+                value={selectedPatientRecord?.id || ''}
+                onChange={(e) => {
+                  const chosenId = e.target.value;
+                  if (!chosenId) {
+                    setSelectedPatientRecord(null);
+                    return;
+                  }
+                  const found = safeArray<PatientRecord>(registeredPatients).find((p) => p.id === chosenId);
+                  if (found) {
+                    handleApplyPatientRecord(found);
+                  }
+                }}
+                aria-label="Selecionar paciente cadastrado para consulta"
+                className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">
+                  {registeredPatients.length > 0
+                    ? `Selecionar paciente cadastrado (${registeredPatients.length})...`
+                    : 'Nenhum paciente cadastrado na Base ainda'}
+                </option>
+                {safeArray<PatientRecord>(registeredPatients).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {safeString(p.fullName)} — Fototipo {safeString(p.fitzpatrick, 'III')}
+                    {p.phone ? ` · ${p.phone}` : ''}
+                  </option>
+                ))}
+              </select>
+
+              {selectedPatientRecord && (
+                <div className="text-[11px] text-slate-600 space-y-1 pt-1 border-t border-slate-200/80">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span>
+                      <strong className="text-slate-800">Ficha vinculada:</strong>{' '}
+                      {safeString(selectedPatientRecord.fullName)} · Fototipo {selectedPatientRecord.fitzpatrick}
+                      {selectedPatientRecord.phone ? ` · ${selectedPatientRecord.phone}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPatientRecord(null)}
+                      className="text-[11px] font-medium text-slate-500 hover:text-slate-800"
+                    >
+                      Desvincular
+                    </button>
+                  </div>
+                  {selectedPatientRecord.medicalHistoryNotes && (
+                    <p className="text-slate-600">
+                      <strong className="text-slate-800">Notas prévias:</strong>{' '}
+                      {selectedPatientRecord.medicalHistoryNotes}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Patient Name & Identifier */}

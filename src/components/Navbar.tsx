@@ -14,7 +14,8 @@ import {
   DollarSign,
   Mic,
   Download,
-  WifiOff
+  WifiOff,
+  Users
 } from 'lucide-react';
 import { DoctorProfile, NavigationTab } from '../types';
 
@@ -92,7 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               id="nav-clinical-btn"
               onClick={() => handleNavClick('clinical')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all whitespace-nowrap shrink-0 ${
                 activeTab === 'clinical'
                   ? 'bg-rose-50 text-rose-700 border border-rose-200 shadow-sm font-bold'
                   : 'text-slate-600 hover:bg-rose-50/60 hover:text-rose-700'
@@ -100,6 +101,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Stethoscope className="w-4 h-4 text-rose-500" />
               <span>Consulta Clínica</span>
+            </button>
+
+            <button
+              id="nav-patients-btn"
+              onClick={() => handleNavClick('patients')}
+              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all whitespace-nowrap shrink-0 ${
+                activeTab === 'patients'
+                  ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-sm font-bold'
+                  : 'text-slate-600 hover:bg-teal-50/60 hover:text-teal-800'
+              }`}
+            >
+              <Users className="w-4 h-4 text-teal-600" />
+              <span>Pacientes</span>
             </button>
 
             <button
@@ -266,6 +280,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Stethoscope className="w-4 h-4 text-rose-500" />
             <span>[1] Consulta Clínica & Copiloto</span>
+          </button>
+
+          <button
+            onClick={() => handleNavClick('patients')}
+            className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2.5 transition ${
+              activeTab === 'patients' ? 'bg-teal-50 text-teal-800 font-bold border border-teal-200' : 'text-slate-700 hover:bg-teal-50/50'
+            }`}
+          >
+            <Users className="w-4 h-4 text-teal-600" />
+            <span>Base de Pacientes & Fitzpatrick</span>
           </button>
 
           <button
