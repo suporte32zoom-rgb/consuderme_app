@@ -1,0 +1,6 @@
+{
+  "name": "ConsuDerme - Consultório Virtual & Copiloto DermIA",
+  "description": "Plataforma completa de consultório virtual, gestão médica dermatológica, conformidade LGPD/CFM e copiloto de inteligência artificial DermIA para dermatologistas.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

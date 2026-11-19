@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Feminine Light Medical Luxury Gradient (Nude Rosé / Lilás Suave / Azul Serenity) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF5F7" />
+      <stop offset="35%" stop-color="#FCE7EC" />
+      <stop offset="70%" stop-color="#E8B4B8" />
+      <stop offset="100%" stop-color="#D8B4F8" />
+    </linearGradient>
+    
+    <linearGradient id="petalGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E11D48" />
+      <stop offset="50%" stop-color="#FB7185" />
+      <stop offset="100%" stop-color="#F43F5E" />
+    </linearGradient>
+
+    <linearGradient id="petalGrad2" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#BE123C" />
+      <stop offset="60%" stop-color="#E8B4B8" />
+      <stop offset="100%" stop-color="#A8DADC" />
+    </linearGradient>
+
+    <linearGradient id="goldMentaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="50%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0D9488" />
+    </linearGradient>
+
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#E8B4B8" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base (Curved refined luxury app container) -->
+  <rect width="512" height="512" rx="120" fill="url(#bgGrad)" />
+  <rect width="502" height="502" x="5" y="5" rx="116" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-opacity="0.8" />
+  <rect width="490" height="490" x="11" y="11" rx="110" fill="none" stroke="#E8B4B8" stroke-width="2" stroke-opacity="0.4" />
+
+  <!-- Inner Soft Aura -->
+  <circle cx="256" cy="256" r="180" fill="#FFFFFF" fill-opacity="0.6" filter="url(#softGlow)" />
+
+  <!-- Harmonious Medical Cross (Delicate, Refined) -->
+  <g opacity="0.35">
+    <rect x="246" y="100" width="20" height="312" rx="10" fill="url(#goldMentaGrad)" />
+    <rect x="100" y="246" width="312" height="20" rx="10" fill="url(#goldMentaGrad)" />
+  </g>
+
+  <!-- Fine Vector Lotus Flower (Elegance & Dermatology Skin Bloom) -->
+  <!-- Left Outer Petal -->
+  <path d="M 256 360 C 180 340, 110 280, 130 200 C 160 210, 220 260, 256 360 Z" 
+        fill="url(#petalGrad2)" fill-opacity="0.75" stroke="#9F1239" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Right Outer Petal -->
+  <path d="M 256 360 C 332 340, 402 280, 382 200 C 352 210, 292 260, 256 360 Z" 
+        fill="url(#petalGrad2)" fill-opacity="0.75" stroke="#9F1239" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Left Inner Petal -->
+  <path d="M 256 360 C 200 320, 160 240, 195 160 C 220 210, 245 270, 256 360 Z" 
+        fill="url(#petalGrad1)" fill-opacity="0.85" stroke="#881337" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Right Inner Petal -->
+  <path d="M 256 360 C 312 320, 352 240, 317 160 C 292 210, 267 270, 256 360 Z" 
+        fill="url(#petalGrad1)" fill-opacity="0.85" stroke="#881337" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Center Core Petal / Skin Shield -->
+  <path d="M 256 120 C 290 200, 290 280, 256 360 C 222 280, 222 200, 256 120 Z" 
+        fill="#FFF1F2" stroke="#E11D48" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Delicate Golden/Teal Droplet Center of Dermatology -->
+  <circle cx="256" cy="270" r="14" fill="url(#goldMentaGrad)" stroke="#FFFFFF" stroke-width="3" />
+  
+  <!-- DermIA AI Sparkle at Top (Star of Intelligence & Clarity) -->
+  <g transform="translate(256, 110)">
+    <path d="M 0 -22 Q 0 0 22 0 Q 0 0 0 22 Q 0 0 -22 0 Q 0 0 0 -22 Z" fill="url(#goldMentaGrad)" />
+    <circle cx="0" cy="0" r="4" fill="#FFFFFF" />
+  </g>
+
+  <!-- Accent AI Sparkle (Top Right) -->
+  <g transform="translate(370, 140) scale(0.65)">
+    <path d="M 0 -20 Q 0 0 20 0 Q 0 0 0 20 Q 0 0 -20 0 Q 0 0 0 -20 Z" fill="#F43F5E" />
+    <circle cx="0" cy="0" r="3" fill="#FFFFFF" />
+  </g>
+
+  <!-- Accent AI Sparkle (Top Left) -->
+  <g transform="translate(142, 140) scale(0.5)">
+    <path d="M 0 -20 Q 0 0 20 0 Q 0 0 0 20 Q 0 0 -20 0 Q 0 0 -20 0 Z" fill="#0D9488" />
+  </g>
+
+  <!-- Subtle Base Pedestal -->
+  <path d="M 200 370 Q 256 385 312 370 Q 256 378 200 370 Z" fill="#BE123C" opacity="0.6" />
+</svg>

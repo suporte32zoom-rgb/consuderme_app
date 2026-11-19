@@ -1,0 +1,95 @@
+{
+  "name": "ConsuDerme — Consultório Virtual & Copiloto DermIA",
+  "short_name": "ConsuDerme",
+  "description": "Consultório Virtual, Gestão Médica Integrada e Copiloto de Inteligência Artificial para Dermatologistas.",
+  "id": "/?source=pwa",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#F8F9FA",
+  "theme_color": "#E8B4B8",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": [
+    "medical",
+    "health",
+    "productivity",
+    "business"
+  ],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "DermIA Copiloto & Voz",
+      "short_name": "DermIA",
+      "description": "Abrir Copiloto Clínico com IA e Microfone",
+      "url": "/?tab=dermia",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Consulta & Diagnóstico",
+      "short_name": "Consulta",
+      "description": "Anamnese semiológica e diagnóstico diferencial",
+      "url": "/?tab=clinical",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Prescritor Magistral",
+      "short_name": "Prescritor",
+      "description": "Gerador de Fórmulas e Veículos Galênicos",
+      "url": "/?tab=prescriptions",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Guia de Injetáveis & Anatomia",
+      "short_name": "Injetáveis",
+      "description": "Mapas anatômicos, Toxina e Hialuronidase",
+      "url": "/?tab=procedures",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Gestão & Fluxo Financeiro",
+      "short_name": "Financeiro",
+      "description": "Calculadora de Custos por UI/mL e Fluxo de Caixa",
+      "url": "/?tab=financial",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
