@@ -10,7 +10,8 @@ import {
 import { safeArray, safeJoin, safeString } from '../utils/safeHelpers';
 
 async function postCopilotApi<T = any>(endpoint: string, payload: Record<string, any>): Promise<T> {
-  const response = await fetch(endpoint, {
+  const apiUrl = endpoint.startsWith('/') ? `.${endpoint}` : endpoint;
+  const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -23,6 +24,11 @@ async function postCopilotApi<T = any>(endpoint: string, payload: Record<string,
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
+    if (response.status === 404 || response.status === 405) {
+      throw new Error(
+        'O motor de IA via servidor não está ativo nesta hospedagem estática (GitHub Pages). Utilize os módulos clínicos locais ou acesse a versão com servidor ativo.'
+      );
+    }
     throw new Error(`Resposta inválida do servidor (${response.status}).`);
   }
 

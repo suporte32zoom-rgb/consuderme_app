@@ -19,15 +19,19 @@ export function usePWA() {
 
   useEffect(() => {
     // Check if running in standalone mode (already installed)
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+    const isStandalone =
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(display-mode: standalone)').matches) ||
       (window.navigator as any).standalone === true;
     setIsInstalled(isStandalone);
 
-    // Register Service Worker
+    // Register Service Worker using relative/base-aware path
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
+        const baseUrl = (import.meta as any)?.env?.BASE_URL || './';
+        const swUrl = baseUrl.endsWith('/') ? `${baseUrl}sw.js` : `${baseUrl}/sw.js`;
         navigator.serviceWorker
-          .register('/sw.js')
+          .register(swUrl)
           .then((registration) => {
             setSwRegistration(registration);
             console.log('[ConsuDerme PWA] Service Worker registrado com sucesso:', registration.scope);

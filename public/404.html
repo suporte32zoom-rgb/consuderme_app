@@ -8,7 +8,12 @@
       (function () {
         var search = window.location.search || '';
         var hash = window.location.hash || '';
-        window.location.replace('/' + search + hash);
+        var isGithubIo = /\.github\.io$/i.test(window.location.hostname);
+        var segments = window.location.pathname.split('/').filter(Boolean);
+        var basePath = isGithubIo && segments.length > 0 ? '/' + segments[0] + '/' : '/';
+        if (window.location.pathname !== basePath) {
+          window.location.replace(basePath + search + hash);
+        }
       })();
     </script>
   </head>
